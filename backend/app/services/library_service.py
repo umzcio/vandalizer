@@ -222,9 +222,12 @@ async def add_item(
     lib = await access_control.get_authorized_library(library_id, user, manage=True)
     if not lib:
         return None
+    is_verified = False
     if kind == LibraryItemKind.WORKFLOW.value:
-        if not await access_control.get_authorized_workflow(item_id, user):
+        wf = await access_control.get_authorized_workflow(item_id, user)
+        if not wf:
             return None
+        is_verified = bool(getattr(wf, "verified", False))
     elif kind == LibraryItemKind.SEARCH_SET.value:
         try:
             search_set = await SearchSet.get(PydanticObjectId(item_id))
@@ -232,6 +235,7 @@ async def add_item(
             search_set = None
         if not search_set or not await access_control.get_authorized_search_set(search_set.uuid, user):
             return None
+        is_verified = bool(getattr(search_set, "verified", False))
     else:
         return None
 
@@ -240,6 +244,7 @@ async def add_item(
         item_id=PydanticObjectId(item_id),
         kind=LibraryItemKind(kind),
         added_by_user_id=user.user_id,
+        verified=is_verified,
         note=note,
         tags=tags or [],
         folder=folder,

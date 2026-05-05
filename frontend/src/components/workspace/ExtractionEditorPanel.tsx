@@ -4,6 +4,7 @@ import { ExtractionTutorial } from './ExtractionTutorial'
 import { X, Pencil, Loader2, Copy, Trash2, GripVertical, Plus, ChevronDown, ChevronRight, Play, TrendingUp, Sparkles, FileText, AlertTriangle, Eye, Shield, ShieldCheck, Download, Check, PenTool, Wrench, ClipboardCheck, SlidersHorizontal, Clock } from 'lucide-react'
 import { useWorkspace } from '../../contexts/WorkspaceContext'
 import { useToast } from '../../contexts/ToastContext'
+import { useAuth } from '../../hooks/useAuth'
 import { useSearchSetItems } from '../../hooks/useExtractions'
 import {
   getSearchSet,
@@ -72,6 +73,7 @@ export function ExtractionEditorPanel() {
   const queryClient = useQueryClient()
   const { openExtractionId, openExtraction, closeExtraction, selectedDocUuids, setHighlightTerms, bumpActivitySignal, consumeExtractionResults } = useWorkspace()
   const { toast } = useToast()
+  const { user } = useAuth()
   const [searchSet, setSearchSet] = useState<SearchSet | null>(null)
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState<Tab>('design')
@@ -147,8 +149,18 @@ export function ExtractionEditorPanel() {
     setNudgeDismissed(!!localStorage.getItem(key))
   }, [openExtractionId])
 
+  // Block edits on verified extractions for non-examiners. Returns true if blocked.
+  const blockedByVerified = (): boolean => {
+    if (searchSet?.verified && !user?.is_examiner) {
+      toast('This extraction is verified — make a copy to edit', 'error')
+      return true
+    }
+    return false
+  }
+
   // --- Title editing ---
   const startEditTitle = () => {
+    if (blockedByVerified()) return
     setTitleDraft(searchSet?.title ?? '')
     setEditingTitle(true)
   }
@@ -156,6 +168,7 @@ export function ExtractionEditorPanel() {
   const saveTitle = async () => {
     setEditingTitle(false)
     if (!openExtractionId || titleDraft === searchSet?.title) return
+    if (blockedByVerified()) return
     await updateSearchSet(openExtractionId, { title: titleDraft.trim() || searchSet?.title })
     refresh()
   }
@@ -164,6 +177,7 @@ export function ExtractionEditorPanel() {
   const handleAddItem = async () => {
     const phrase = newTerm.trim()
     if (!phrase) return
+    if (blockedByVerified()) return
     await add(phrase)
     setNewTerm('')
   }
@@ -246,14 +260,18 @@ export function ExtractionEditorPanel() {
   }
 
   // --- Tools ---
+  const [cloning, setCloning] = useState(false)
   const handleClone = async () => {
-    if (!openExtractionId) return
+    if (!openExtractionId || cloning) return
+    setCloning(true)
     try {
       const cloned = await cloneSearchSet(openExtractionId)
       openExtraction(cloned.uuid)
       toast('Extraction cloned', 'success')
     } catch {
       toast('Failed to clone extraction', 'error')
+    } finally {
+      setCloning(false)
     }
   }
 
@@ -452,6 +470,32 @@ export function ExtractionEditorPanel() {
           <X style={{ width: 20, height: 20 }} />
         </button>
       </div>
+
+      {/* Verified extraction notice */}
+      {searchSet.verified && (
+        <div style={{
+          margin: '0 24px 8px', padding: '8px 12px', fontSize: 12, color: '#78350f',
+          backgroundColor: '#fef3c7', borderRadius: 6, display: 'flex', alignItems: 'center', gap: 8,
+          border: '1px solid #fde68a',
+        }}>
+          <ShieldCheck style={{ width: 14, height: 14, flexShrink: 0, color: '#b45309' }} />
+          <span style={{ flex: 1 }}>
+            This is a verified extraction. Make a copy to edit it — your edits won't affect the verified version.
+          </span>
+          <button
+            onClick={handleClone}
+            disabled={cloning}
+            style={{
+              padding: '4px 10px', fontSize: 11, fontWeight: 700, fontFamily: 'inherit',
+              borderRadius: 4, border: '1px solid #b45309',
+              backgroundColor: '#fff7ed', color: '#78350f', cursor: 'pointer',
+              whiteSpace: 'nowrap', opacity: cloning ? 0.6 : 1,
+            }}
+          >
+            {cloning ? 'Copying...' : 'Make a copy to edit'}
+          </button>
+        </div>
+      )}
 
       {/* Tab bar */}
       <div

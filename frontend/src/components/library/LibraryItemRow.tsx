@@ -117,6 +117,14 @@ export function LibraryItemRow({ item, scope, onPin, onFavorite, onClone, onShar
           }}
         >
           {item.name}
+          {item.verified && (
+            <span
+              title="Verified — saved as a reference. Make a copy to edit."
+              style={{ display: 'inline-flex', alignItems: 'center', flexShrink: 0 }}
+            >
+              <ShieldCheck size={13} style={{ color: '#b45309' }} />
+            </span>
+          )}
           {item.favorited && !hovered && (
             <Star size={12} fill="#fbbc04" style={{ color: '#fbbc04', flexShrink: 0 }} />
           )}
@@ -126,6 +134,9 @@ export function LibraryItemRow({ item, scope, onPin, onFavorite, onClone, onShar
         </div>
         <div style={{ fontSize: 12, color: '#70757a', marginTop: 4, display: 'flex', alignItems: 'center', gap: 8 }}>
           <span>{kindLabel}</span>
+          {item.verified && (
+            <span style={{ color: '#b45309', fontWeight: 500 }}>Verified</span>
+          )}
           {item.created_by && item.created_by.user_id !== user?.user_id && (
             <AuthorChip author={item.created_by} />
           )}

@@ -5,13 +5,14 @@ import {
   FileText, Filter, Outdent, Globe, Image, Code,
   Bug, Search, Zap, Download, Package, CheckCircle, XCircle,
   MousePointerClick, PenTool, ClipboardCheck, Flag,
-  AlertTriangle, ChevronDown, ChevronRight, ArrowUp, ArrowDown,
+  ChevronDown, ChevronRight, ArrowUp, ArrowDown,
   Circle, Hand, Keyboard, Sparkles, ShieldCheck, Type,
   ArrowRight, Pause, TrendingUp, RefreshCw,
   Upload, Clock, Copy, Check,
 } from 'lucide-react'
 import { useWorkspace } from '../../contexts/WorkspaceContext'
 import { useToast } from '../../contexts/ToastContext'
+import { useAuth } from '../../hooks/useAuth'
 import {
   getWorkflow, addStep, deleteStep, addTask, deleteTask, updateTask,
   updateWorkflow, updateStep, downloadResults, testStep, getTestStepStatus,
@@ -145,6 +146,7 @@ const TEST_MESSAGES = [
 export function WorkflowEditorPanel() {
   const queryClient = useQueryClient()
   const { toast } = useToast()
+  const { user } = useAuth()
   const { openWorkflowId, openWorkflow, closeWorkflow, consumeWorkflowSession, selectedDocUuids, bumpActivitySignal } = useWorkspace()
   const [workflow, setWorkflow] = useState<Workflow | null>(null)
   const [loading, setLoading] = useState(true)
@@ -253,8 +255,22 @@ export function WorkflowEditorPanel() {
 
   // --- handlers ---
 
+  // Block edits on verified workflows for non-examiners. Returns true if blocked.
+  const blockedByVerified = (): boolean => {
+    const isVerified = !!(workflow as Workflow & { verified?: boolean })?.verified
+    if (isVerified && !user?.is_examiner) {
+      toast('This workflow is verified — make a copy to edit', 'error')
+      return true
+    }
+    return false
+  }
+
   const handleTitleSave = async () => {
     if (!openWorkflowId || !titleValue.trim()) {
+      setEditingTitle(false)
+      return
+    }
+    if (blockedByVerified()) {
       setEditingTitle(false)
       return
     }
@@ -267,6 +283,10 @@ export function WorkflowEditorPanel() {
     if (!openWorkflowId || !newStepName.trim()) return
     if (workflow?.can_manage === false) {
       toast('Make a copy to edit this workflow', 'error')
+      setShowNewStepModal(false)
+      return
+    }
+    if (blockedByVerified()) {
       setShowNewStepModal(false)
       return
     }
@@ -294,6 +314,10 @@ export function WorkflowEditorPanel() {
     if (!editingStepId) return
     if (workflow?.can_manage === false) {
       toast('Make a copy to edit this workflow', 'error')
+      setShowTaskPicker(false)
+      return
+    }
+    if (blockedByVerified()) {
       setShowTaskPicker(false)
       return
     }
@@ -423,13 +447,28 @@ export function WorkflowEditorPanel() {
   return (
     <div className="flex h-full flex-col" style={{ backgroundColor: '#fff', position: 'relative' }}>
       {/* ===== VERIFIED WORKFLOW NOTICE ===== */}
-      {workflow.steps.length > 0 && (workflow as Workflow & { verified?: boolean }).verified && (
+      {(workflow as Workflow & { verified?: boolean }).verified && (
         <div style={{
-          margin: '8px 24px 0', padding: '8px 12px', fontSize: 12, color: '#a16c2d',
-          backgroundColor: '#fef3c7', borderRadius: 6, display: 'flex', alignItems: 'center', gap: 6,
+          margin: '8px 24px 0', padding: '8px 12px', fontSize: 12, color: '#78350f',
+          backgroundColor: '#fef3c7', borderRadius: 6, display: 'flex', alignItems: 'center', gap: 8,
+          border: '1px solid #fde68a',
         }}>
-          <AlertTriangle style={{ width: 14, height: 14, flexShrink: 0 }} />
-          Verified workflows are view-only unless you are an examiner. Clone the workflow to make changes.
+          <ShieldCheck style={{ width: 14, height: 14, flexShrink: 0, color: '#b45309' }} />
+          <span style={{ flex: 1 }}>
+            This is a verified workflow. Make a copy to edit it — your edits won't affect the verified version.
+          </span>
+          <button
+            onClick={handleMakeCopy}
+            disabled={duplicating}
+            style={{
+              padding: '4px 10px', fontSize: 11, fontWeight: 700, fontFamily: 'inherit',
+              borderRadius: 4, border: '1px solid #b45309',
+              backgroundColor: '#fff7ed', color: '#78350f', cursor: 'pointer',
+              whiteSpace: 'nowrap', opacity: duplicating ? 0.6 : 1,
+            }}
+          >
+            {duplicating ? 'Copying...' : 'Make a copy to edit'}
+          </button>
         </div>
       )}
 
