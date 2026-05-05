@@ -1802,6 +1802,7 @@ function TaskEditModal({ task, selectedDocUuids, workflow, workflowId, onClose, 
   onSave: (taskId: string, data: Record<string, unknown>) => void
   onRefreshWorkflow: () => void
 }) {
+  const { user } = useAuth()
   const [taskData, setTaskData] = useState<Record<string, unknown>>({ ...task.data })
   const [saving, setSaving] = useState(false)
   const [subTab, setSubTab] = useState<TaskSubTab>('design')
