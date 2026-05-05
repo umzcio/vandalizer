@@ -7,6 +7,7 @@ import { useLibraries, useLibraryItems } from '../../hooks/useLibrary'
 import { LibraryItemRow } from '../library/LibraryItemRow'
 import { ExploreTab } from '../library/ExploreTab'
 import { cloneToPersonal, shareToTeam, addItem as addItemToLibrary, touchItem, listCollections } from '../../api/library'
+import { ApiError } from '../../api/client'
 import { createWorkflow, importWorkflow } from '../../api/workflows'
 import { createSearchSet, importSearchSet, listItems as listSearchSetItems, updateSearchSet, updateItem as updateSearchSetItem, addItem as addSearchSetItem } from '../../api/extractions'
 import {
@@ -139,9 +140,18 @@ export function LibraryTab() {
     refreshItems()
   }
   const handleShare = async (itemId: string) => {
-    if (!teamId) return
-    await shareToTeam(itemId, teamId)
-    refreshItems()
+    if (!teamId) {
+      toast('Switch to a team before sharing items.', 'info')
+      return
+    }
+    try {
+      await shareToTeam(itemId, teamId)
+      toast('Shared to team library', 'success')
+      refreshItems()
+    } catch (err) {
+      const msg = err instanceof ApiError ? err.message : 'Failed to share to team'
+      toast(msg, 'error')
+    }
   }
   const handleRemove = async (itemId: string) => {
     await remove(itemId)

@@ -26,6 +26,19 @@ if TYPE_CHECKING:
     from app.models.user import User
 
 
+class ShareError(Exception):
+    """Raised by share_to_team to identify which step failed.
+
+    `code` distinguishes failure modes so the API surface can return
+    actionable HTTP responses instead of a single conflated 404.
+    """
+
+    def __init__(self, code: str, status: int):
+        self.code = code
+        self.status = status
+        super().__init__(code)
+
+
 async def _resolve_team_oid(team_id: str) -> PydanticObjectId:
     """Resolve a team identifier (ObjectId string or UUID) to a PydanticObjectId.
 
@@ -408,32 +421,33 @@ async def clone_to_personal(item_id: str, user: User) -> dict | None:
     )
 
 
-async def share_to_team(item_id: str, user: User, team_id: str) -> dict | None:
+async def share_to_team(item_id: str, user: User, team_id: str) -> dict:
     item = await access_control.get_authorized_library_item(item_id, user)
     if not item:
-        return None
+        raise ShareError("item_not_found", 404)
 
     team_access = await access_control.get_team_access_context(user)
     try:
         team_oid = await _resolve_team_oid(team_id)
     except ValueError:
-        return None
+        raise ShareError("team_not_found", 404)
     if not access_control.can_manage_team(str(team_oid), team_access):
-        return None
+        raise ShareError("not_team_manager", 403)
 
     new_obj_id = await _clone_underlying_object(item, user.user_id, team_id=team_id)
     if not new_obj_id:
-        return None
+        raise ShareError("clone_failed", 500)
 
     team_lib = await get_or_create_team_library(user.user_id, team_id)
-    return await add_item(
+    result = await add_item(
         library_id=str(team_lib.id),
         user=user,
         item_id=str(new_obj_id),
         kind=item.kind.value,
-        note="Shared to team",
-        tags=list(item.tags),
     )
+    if not result:
+        raise ShareError("clone_failed", 500)
+    return result
 
 
 # ---------------------------------------------------------------------------

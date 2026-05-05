@@ -2,10 +2,12 @@ import { useState } from 'react'
 import { Search } from 'lucide-react'
 import { useLibraryItems } from '../../hooks/useLibrary'
 import { cloneToPersonal, shareToTeam } from '../../api/library'
+import { ApiError } from '../../api/client'
 import type { Library } from '../../types/library'
 import type { LibraryItem } from '../../types/library'
 import { LibraryItemRow } from './LibraryItemRow'
 import { LibraryItemDetails } from './LibraryItemDetails'
+import { useToast } from '../../contexts/ToastContext'
 
 interface Props {
   library: Library
@@ -13,6 +15,7 @@ interface Props {
 }
 
 export function LibraryItemsPanel({ library, teamId }: Props) {
+  const { toast } = useToast()
   const [kindFilter, setKindFilter] = useState<string | undefined>()
   const [search, setSearch] = useState('')
   const [selectedItem, setSelectedItem] = useState<LibraryItem | null>(null)
@@ -35,9 +38,18 @@ export function LibraryItemsPanel({ library, teamId }: Props) {
   }
 
   const handleShare = async (itemId: string) => {
-    if (!teamId) return
-    await shareToTeam(itemId, teamId)
-    refresh()
+    if (!teamId) {
+      toast('Switch to a team before sharing items.', 'info')
+      return
+    }
+    try {
+      await shareToTeam(itemId, teamId)
+      toast('Shared to team library', 'success')
+      refresh()
+    } catch (err) {
+      const msg = err instanceof ApiError ? err.message : 'Failed to share to team'
+      toast(msg, 'error')
+    }
   }
 
   const handleRemove = async (itemId: string) => {
