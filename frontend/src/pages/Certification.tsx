@@ -23,6 +23,7 @@ import { ModuleDetail } from '../components/certification/ModuleDetail'
 import { useQueryClient } from '@tanstack/react-query'
 import { JourneyMap } from '../components/certification/JourneyMap'
 import { LEVEL_CONFIG, LEVEL_THRESHOLDS, TOTAL_XP, TIERS } from '../components/certification/constants'
+import { useModuleLock } from '../components/certification/useModuleLock'
 
 // ---------------------------------------------------------------------------
 // Module definitions
@@ -966,15 +967,7 @@ export default function Certification() {
 
   const overallPct = (totalXp / TOTAL_XP) * 100
 
-  const isModuleLocked = useCallback((moduleId: string): boolean => {
-    const module = MODULES.find(m => m.id === moduleId)
-    if (!module) return true
-    if (module.number === 0) return false // Module 0 always unlocked
-    if (progress?.unlocked) return false // Admin debug unlock — bypass prerequisites
-    const prevModule = MODULES.find(m => m.number === module.number - 1)
-    if (!prevModule) return false
-    return !progress?.modules[prevModule.id]?.completed
-  }, [progress])
+  const isModuleLocked = useModuleLock(progress)
 
   // Load exercise when active module changes
   useEffect(() => {

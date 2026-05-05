@@ -27,6 +27,7 @@ import { CertifiedBanner } from './CertifiedBanner'
 import { CelebrationOverlay } from './CelebrationOverlay'
 import { ModuleDetail } from './ModuleDetail'
 import { JourneyMap } from './JourneyMap'
+import { useModuleLock } from './useModuleLock'
 
 // ---------------------------------------------------------------------------
 // MODULES — inline here since they live in the page file, not in constants
@@ -210,15 +211,7 @@ export function CertificationPanel() {
   const prevLevel = LEVEL_THRESHOLDS[currentLevelIdx] || LEVEL_THRESHOLDS[0]
   const overallPct = (totalXp / TOTAL_XP) * 100
 
-  const isModuleLocked = useCallback((moduleId: string): boolean => {
-    const module = MODULES.find(m => m.id === moduleId)
-    if (!module) return true
-    if (module.number === 0) return false
-    if (progress?.unlocked) return false // Admin debug unlock — bypass prerequisites
-    const prevModule = MODULES.find(m => m.number === module.number - 1)
-    if (!prevModule) return false
-    return !progress?.modules[prevModule.id]?.completed
-  }, [progress])
+  const isModuleLocked = useModuleLock(progress)
 
   // Load exercise when active module changes
   useEffect(() => {
