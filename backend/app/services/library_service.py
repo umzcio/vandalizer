@@ -431,8 +431,8 @@ async def share_to_team(item_id: str, user: User, team_id: str) -> dict:
         team_oid = await _resolve_team_oid(team_id)
     except ValueError:
         raise ShareError("team_not_found", 404)
-    if not access_control.can_manage_team(str(team_oid), team_access):
-        raise ShareError("not_team_manager", 403)
+    if not access_control.can_view_team(str(team_oid), team_access):
+        raise ShareError("not_team_member", 403)
 
     new_obj_id = await _clone_underlying_object(item, user.user_id, team_id=team_id)
     if not new_obj_id:
@@ -468,7 +468,7 @@ async def create_folder(
             raise ValueError("team_id is required for team folders")
         team_oid = await _resolve_team_oid(team_id)
         team_access = await access_control.get_team_access_context(user)
-        if not access_control.can_manage_team(str(team_oid), team_access):
+        if not access_control.can_view_team(str(team_oid), team_access):
             raise ValueError("Team not accessible")
 
     if parent_id:

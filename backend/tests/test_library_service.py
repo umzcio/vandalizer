@@ -613,7 +613,7 @@ class TestShareToTeamErrors:
             assert exc.value.status == 404
 
     @pytest.mark.asyncio
-    async def test_raises_not_team_manager_when_user_is_member(self):
+    async def test_raises_not_team_member_when_user_is_not_on_team(self):
         from app.services.library_service import ShareError, share_to_team
 
         item = _make_library_item()
@@ -622,10 +622,10 @@ class TestShareToTeamErrors:
              patch("app.services.library_service._resolve_team_oid", AsyncMock(return_value=team_oid)):
             ac.get_authorized_library_item = AsyncMock(return_value=item)
             ac.get_team_access_context = AsyncMock(return_value=MagicMock())
-            ac.can_manage_team = MagicMock(return_value=False)
+            ac.can_view_team = MagicMock(return_value=False)
             with pytest.raises(ShareError) as exc:
                 await share_to_team("item-1", _make_user(), str(team_oid))
-            assert exc.value.code == "not_team_manager"
+            assert exc.value.code == "not_team_member"
             assert exc.value.status == 403
 
     @pytest.mark.asyncio
@@ -639,7 +639,7 @@ class TestShareToTeamErrors:
              patch("app.services.library_service._clone_underlying_object", AsyncMock(return_value=None)):
             ac.get_authorized_library_item = AsyncMock(return_value=item)
             ac.get_team_access_context = AsyncMock(return_value=MagicMock())
-            ac.can_manage_team = MagicMock(return_value=True)
+            ac.can_view_team = MagicMock(return_value=True)
             with pytest.raises(ShareError) as exc:
                 await share_to_team("item-1", _make_user(), str(team_oid))
             assert exc.value.code == "clone_failed"

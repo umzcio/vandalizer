@@ -90,7 +90,7 @@ async def clone_to_personal(req: CloneRequest, user: User = Depends(get_current_
 _SHARE_ERROR_MESSAGES = {
     "item_not_found": "Library item not found or not accessible.",
     "team_not_found": "Selected team could not be found.",
-    "not_team_manager": "Only team owners and admins can share items to the team.",
+    "not_team_member": "You must be a member of the team to share items to it.",
     "clone_failed": "Failed to clone the underlying workflow or extraction.",
 }
 
