@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import {
-  Ellipsis,
+  MoreHorizontal,
   Pin,
   Star,
   Copy,
@@ -240,7 +240,6 @@ export function LibraryItemRow({ item, scope, onPin, onFavorite, onClone, onShar
               <Pin size={14} />
             </button>
 
-            {/* Ellipsis menu */}
             <div style={{ position: 'relative', display: 'inline-block' }}>
               <button
                 ref={triggerRef}
@@ -262,7 +261,7 @@ export function LibraryItemRow({ item, scope, onPin, onFavorite, onClone, onShar
                   color: '#9aa0a6',
                 }}
               >
-                <Ellipsis size={14} />
+                <MoreHorizontal size={16} />
               </button>
 
               {menuOpen && createPortal(

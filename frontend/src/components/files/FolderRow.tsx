@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react'
-import { Folder as FolderIcon, Users, MoreVertical, Eye } from 'lucide-react'
+import { Folder as FolderIcon, Users, MoreHorizontal, Eye } from 'lucide-react'
 import type { Folder } from '../../types/document'
 
 interface FolderRowProps {
@@ -169,7 +169,7 @@ export function FolderRow({ folder, onClick, onContextMenu, selected, onToggleSe
             }}
             aria-label="More options"
           >
-            <MoreVertical className="h-4 w-4" />
+            <MoreHorizontal className="h-4 w-4" />
           </button>
         </div>
       </td>

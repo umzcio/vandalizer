@@ -879,7 +879,7 @@ export function LibraryTab() {
                             flexShrink: 0,
                           }}
                         >
-                          <MoreHorizontal style={{ width: 12, height: 12 }} />
+                          <MoreHorizontal style={{ width: 16, height: 16 }} />
                         </button>
                       </div>
                     )}

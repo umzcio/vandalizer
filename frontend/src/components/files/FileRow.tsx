@@ -1,4 +1,4 @@
-import { Loader2, MoreVertical, AlertTriangle, Shield } from 'lucide-react'
+import { Loader2, MoreHorizontal, AlertTriangle, Shield } from 'lucide-react'
 import type { Document } from '../../types/document'
 import { formatFileDate } from '../../utils/time'
 
@@ -186,7 +186,7 @@ export function FileRow({ doc, onClick, onContextMenu, selected, onToggleSelect,
             }}
             aria-label="More options"
           >
-            <MoreVertical className="h-4 w-4" />
+            <MoreHorizontal className="h-4 w-4" />
           </button>
         </div>
       </td>
