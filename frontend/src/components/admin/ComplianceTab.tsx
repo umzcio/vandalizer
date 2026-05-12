@@ -287,8 +287,8 @@ export function ComplianceTab() {
             <AlertTriangle size={16} style={{ flexShrink: 0, marginTop: 2 }} />
             <div>
               Retention enforcement is currently off. Documents will not be auto-scheduled for
-              deletion. Toggle <code>retention_config.enabled</code> in System Config to start
-              enforcement.
+              deletion. Turn it on under <strong>Config → System Config → Document Retention
+              Policy</strong>.
             </div>
           </div>
         )}
@@ -380,7 +380,7 @@ export function ComplianceTab() {
           display: 'flex', alignItems: 'center', gap: 6,
         }}>
           <Lock size={12} />
-          Edit retention windows under <strong style={{ marginLeft: 4 }}>Config → System Config</strong>.
+          Edit retention windows under <strong style={{ marginLeft: 4 }}>Config → System Config → Document Retention Policy</strong>.
         </div>
       </section>
     </div>

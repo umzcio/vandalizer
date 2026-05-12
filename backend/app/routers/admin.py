@@ -220,6 +220,7 @@ class ConfigUpdateRequest(BaseModel):
     extraction_config: Optional[dict] = None
     quality_config: Optional[dict] = None
     compliance_config: Optional[dict] = None
+    retention_config: Optional[dict] = None
     ocr_endpoint: Optional[str] = None
     ocr_api_key: Optional[str] = None
     llm_endpoint: Optional[str] = None
@@ -1247,6 +1248,7 @@ async def get_config(
         "default_team_id": cfg.default_team_id or "",
         "support_contacts": cfg.support_contacts,
         "compliance_config": cfg.get_compliance_config(),
+        "retention_config": cfg.get_retention_config(),
     }
 
 
@@ -1269,6 +1271,8 @@ async def update_config(
         cfg.quality_config = body.quality_config
     if body.compliance_config is not None:
         cfg.compliance_config = body.compliance_config
+    if body.retention_config is not None:
+        cfg.retention_config = body.retention_config
     if body.ocr_endpoint is not None:
         cfg.ocr_endpoint = body.ocr_endpoint
     if body.ocr_api_key is not None and body.ocr_api_key != "***":

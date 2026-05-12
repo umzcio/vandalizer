@@ -2347,6 +2347,17 @@ function ConfigTab() {
   const [complianceSaving, setComplianceSaving] = useState(false)
   const [complianceSaved, setComplianceSaved] = useState(false)
 
+  // Retention policy
+  type RetentionPolicyForm = { retention_days: number; soft_delete_grace_days: number; warning_days_before?: number }
+  const [retentionEnabled, setRetentionEnabled] = useState(false)
+  const [retentionPolicies, setRetentionPolicies] = useState<Record<string, RetentionPolicyForm>>({})
+  const [activityRetentionDays, setActivityRetentionDays] = useState(180)
+  const [chatRetentionDays, setChatRetentionDays] = useState(365)
+  const [workflowResultRetentionDays, setWorkflowResultRetentionDays] = useState(365)
+  const [staleActivityMinutes, setStaleActivityMinutes] = useState(30)
+  const [retentionSaving, setRetentionSaving] = useState(false)
+  const [retentionSaved, setRetentionSaved] = useState(false)
+
   // Add/edit provider form
   const [showAddProvider, setShowAddProvider] = useState(false)
   const [newProvider, setNewProvider] = useState({ provider: 'oauth', display_name: '', client_id: '', client_secret: '', redirect_uri: '', tenant_id: '' })
@@ -2402,6 +2413,14 @@ function ConfigTab() {
       setComplianceRules(comp.rules || '')
       setComplianceChunkSize(comp.chunk_size || 8000)
       setComplianceChunkOverlap(comp.chunk_overlap ?? 200)
+      // Retention config
+      const rc = (c.retention_config || {}) as Record<string, unknown>
+      setRetentionEnabled(!!rc.enabled)
+      setRetentionPolicies((rc.policies as Record<string, RetentionPolicyForm>) || {})
+      setActivityRetentionDays((rc.activity_retention_days as number) ?? 180)
+      setChatRetentionDays((rc.chat_retention_days as number) ?? 365)
+      setWorkflowResultRetentionDays((rc.workflow_result_retention_days as number) ?? 365)
+      setStaleActivityMinutes((rc.activity_stale_threshold_minutes as number) ?? 30)
     }).finally(() => setLoading(false))
 
     getThemeConfig().then(t => {
@@ -3616,6 +3635,195 @@ function ConfigTab() {
               {complianceSaving ? 'Saving...' : 'Save Compliance Settings'}
             </button>
             {complianceSaved && <span style={{ marginLeft: 10, fontSize: 13, color: '#16a34a' }}>Saved!</span>}
+          </div>
+        </div>
+      </div>
+
+      {/* Retention Policy */}
+      <div style={sectionStyle}>
+        <div style={sectionHeaderStyle}>
+          <ShieldCheck size={18} color="#6b7280" /> Document Retention Policy
+        </div>
+        <div style={{ padding: '0 20px 16px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div style={{ fontSize: 13, color: '#6b7280', lineHeight: 1.5 }}>
+            When enforcement is on, documents are auto-scheduled for soft-deletion after their
+            classification-specific retention window. Soft-deleted documents become unrecoverable
+            after the grace period expires. Items on retention hold are never auto-deleted.
+          </div>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={retentionEnabled}
+              onChange={e => setRetentionEnabled(e.target.checked)}
+              style={checkStyle}
+            />
+            <span style={{ fontSize: 14, fontWeight: 500 }}>Activate retention enforcement</span>
+          </label>
+          {retentionEnabled && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 16, padding: '8px 0' }}>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 8 }}>
+                  Per-classification rules
+                </div>
+                <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr style={{ backgroundColor: '#f9fafb', color: '#6b7280', textAlign: 'left' }}>
+                      <th style={{ padding: '8px 12px', fontWeight: 500 }}>Tier</th>
+                      <th style={{ padding: '8px 12px', fontWeight: 500 }}>Retention (days)</th>
+                      <th style={{ padding: '8px 12px', fontWeight: 500 }}>Grace before purge (days)</th>
+                      <th style={{ padding: '8px 12px', fontWeight: 500 }}>Warn before (days)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {[
+                      { name: 'unrestricted', label: 'Unrestricted', color: '#22c55e' },
+                      { name: 'internal', label: 'Internal', color: '#3b82f6' },
+                      { name: 'ferpa', label: 'FERPA', color: '#f59e0b' },
+                      { name: 'cui', label: 'CUI', color: '#f97316' },
+                      { name: 'itar', label: 'ITAR', color: '#ef4444' },
+                    ].map(level => {
+                      const p = retentionPolicies[level.name] || { retention_days: 0, soft_delete_grace_days: 0 }
+                      const update = (patch: Partial<RetentionPolicyForm>) => {
+                        setRetentionPolicies(prev => ({
+                          ...prev,
+                          [level.name]: { ...p, ...patch },
+                        }))
+                      }
+                      return (
+                        <tr key={level.name} style={{ borderTop: '1px solid #f3f4f6' }}>
+                          <td style={{ padding: '8px 12px' }}>
+                            <span style={{
+                              display: 'inline-flex', alignItems: 'center', gap: 6,
+                              padding: '2px 10px', borderRadius: 9999,
+                              fontSize: 12, fontWeight: 600,
+                              backgroundColor: `${level.color}1a`, color: level.color,
+                              border: `1px solid ${level.color}66`,
+                            }}>
+                              <span style={{ width: 6, height: 6, borderRadius: 9999, backgroundColor: level.color }} />
+                              {level.label}
+                            </span>
+                          </td>
+                          <td style={{ padding: '8px 12px' }}>
+                            <input
+                              type="number"
+                              min={0}
+                              value={p.retention_days || 0}
+                              onChange={e => update({ retention_days: Number(e.target.value) || 0 })}
+                              style={{ ...inputStyle, padding: '6px 10px', width: 120 }}
+                            />
+                          </td>
+                          <td style={{ padding: '8px 12px' }}>
+                            <input
+                              type="number"
+                              min={0}
+                              value={p.soft_delete_grace_days || 0}
+                              onChange={e => update({ soft_delete_grace_days: Number(e.target.value) || 0 })}
+                              style={{ ...inputStyle, padding: '6px 10px', width: 120 }}
+                            />
+                          </td>
+                          <td style={{ padding: '8px 12px' }}>
+                            <input
+                              type="number"
+                              min={0}
+                              value={p.warning_days_before ?? ''}
+                              placeholder="—"
+                              onChange={e => {
+                                const v = e.target.value
+                                update({ warning_days_before: v === '' ? undefined : Number(v) || 0 })
+                              }}
+                              style={{ ...inputStyle, padding: '6px 10px', width: 120 }}
+                            />
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 8 }}>
+                  Other retention windows
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
+                  <div>
+                    <label style={labelStyle}>Activity logs (days)</label>
+                    <input
+                      type="number"
+                      min={0}
+                      value={activityRetentionDays}
+                      onChange={e => setActivityRetentionDays(Number(e.target.value) || 0)}
+                      style={inputStyle}
+                    />
+                  </div>
+                  <div>
+                    <label style={labelStyle}>Chat conversations (days)</label>
+                    <input
+                      type="number"
+                      min={0}
+                      value={chatRetentionDays}
+                      onChange={e => setChatRetentionDays(Number(e.target.value) || 0)}
+                      style={inputStyle}
+                    />
+                  </div>
+                  <div>
+                    <label style={labelStyle}>Workflow results (days)</label>
+                    <input
+                      type="number"
+                      min={0}
+                      value={workflowResultRetentionDays}
+                      onChange={e => setWorkflowResultRetentionDays(Number(e.target.value) || 0)}
+                      style={inputStyle}
+                    />
+                  </div>
+                  <div>
+                    <label style={labelStyle}>Stale activity threshold (min)</label>
+                    <input
+                      type="number"
+                      min={0}
+                      value={staleActivityMinutes}
+                      onChange={e => setStaleActivityMinutes(Number(e.target.value) || 0)}
+                      style={inputStyle}
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+          <div>
+            <button
+              onClick={async () => {
+                setRetentionSaving(true)
+                setRetentionSaved(false)
+                try {
+                  await updateSystemConfig({
+                    retention_config: {
+                      enabled: retentionEnabled,
+                      policies: retentionPolicies,
+                      activity_retention_days: activityRetentionDays,
+                      chat_retention_days: chatRetentionDays,
+                      workflow_result_retention_days: workflowResultRetentionDays,
+                      activity_stale_threshold_minutes: staleActivityMinutes,
+                    },
+                  })
+                  setRetentionSaved(true)
+                  setTimeout(() => setRetentionSaved(false), 3000)
+                } catch {
+                  setError('Failed to save retention configuration')
+                } finally {
+                  setRetentionSaving(false)
+                }
+              }}
+              disabled={retentionSaving}
+              style={{
+                padding: '8px 20px', borderRadius: 'var(--ui-radius, 12px)', border: 'none',
+                background: '#111827', color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                opacity: retentionSaving ? 0.6 : 1,
+              }}
+            >
+              {retentionSaving ? 'Saving...' : 'Save Retention Settings'}
+            </button>
+            {retentionSaved && <span style={{ marginLeft: 10, fontSize: 13, color: '#16a34a' }}>Saved!</span>}
           </div>
         </div>
       </div>
