@@ -131,31 +131,6 @@ def _parse_structured_string(text: str):
     return None
 
 
-def _strip_markdown(text: str) -> str:
-    """Remove common markdown formatting for plain-text output."""
-    text = re.sub(r"^#{1,6}\s+", "", text, flags=re.MULTILINE)
-    text = re.sub(r"\*\*(.+?)\*\*", r"\1", text)
-    text = re.sub(r"\*(.+?)\*", r"\1", text)
-    text = re.sub(r"`(.+?)`", r"\1", text)
-    return text
-
-
-_PDF_UNICODE_REPLACEMENTS = str.maketrans({
-    "‘": "'", "’": "'", "‚": "'", "‛": "'",
-    "“": '"', "”": '"', "„": '"', "‟": '"',
-    "–": "-", "—": "-", "−": "-", "‐": "-", "‑": "-",
-    "…": "...", " ": " ", "​": "", "‌": "", "‍": "",
-    "•": "*", "·": "*", "™": "(TM)", "®": "(R)", "©": "(C)",
-})
-
-
-def _pdf_safe(value) -> str:
-    """Coerce a value to a latin-1-safe string for fpdf core fonts."""
-    text = value if isinstance(value, str) else ("" if value is None else str(value))
-    text = text.translate(_PDF_UNICODE_REPLACEMENTS)
-    return text.encode("latin-1", errors="replace").decode("latin-1")
-
-
 _INLINE_BOLD = re.compile(r"\*\*(.+?)\*\*")
 _INLINE_ITALIC = re.compile(r"(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)")
 _INLINE_CODE = re.compile(r"`(.+?)`")
@@ -573,85 +548,11 @@ async def download_results(
         )
 
     if format == "pdf":
-        from fpdf import FPDF
-        from fpdf.fonts import FontFace
+        from app.services.pdf_service import render_workflow_pdf
 
-        data = output_data
-        if isinstance(data, str):
-            try:
-                data = json.loads(data)
-            except (json.JSONDecodeError, ValueError):
-                pass
-
-        pdf = FPDF()
-        pdf.set_auto_page_break(auto=True, margin=20)
-        pdf.add_page()
-        pdf.set_font("Helvetica", "B", 14)
-        pdf.cell(0, 10, _pdf_safe("Workflow Results"), new_x="LMARGIN", new_y="NEXT")
-        pdf.ln(4)
-
-        heading_style = FontFace(color=255, fill_color=(55, 65, 81), emphasis="BOLD")
-
-        if isinstance(data, list) and data and isinstance(data[0], dict):
-            headers = list(dict.fromkeys(k for row in data for k in row.keys()))
-            usable = pdf.w - pdf.l_margin - pdf.r_margin
-            # Smart column widths: allocate proportionally to max content length
-            max_lens = []
-            for h in headers:
-                col_max = len(str(h))
-                for row in data:
-                    col_max = max(col_max, len(str(row.get(h, ""))))
-                max_lens.append(min(col_max, 80))
-            total = sum(max_lens) or 1
-            col_widths = tuple(max(usable * (ml / total), 20) for ml in max_lens)
-
-            pdf.set_font("Helvetica", "", 9)
-            with pdf.table(
-                col_widths=col_widths,
-                headings_style=heading_style,
-                text_align="LEFT",
-            ) as table:
-                header_row = table.row()
-                for h in headers:
-                    header_row.cell(_pdf_safe(h))
-                for i, item in enumerate(data):
-                    row = table.row()
-                    for h in headers:
-                        val = item.get(h, "")
-                        cell_text = str(val) if val is not None else ""
-                        if isinstance(val, (dict, list)):
-                            cell_text = json.dumps(val, default=str)
-                        row.cell(_pdf_safe(cell_text))
-
-        elif isinstance(data, dict):
-            usable = pdf.w - pdf.l_margin - pdf.r_margin
-            pdf.set_font("Helvetica", "", 10)
-            with pdf.table(
-                col_widths=(usable * 0.3, usable * 0.7),
-                headings_style=heading_style,
-                text_align="LEFT",
-            ) as table:
-                header_row = table.row()
-                header_row.cell(_pdf_safe("Field"))
-                header_row.cell(_pdf_safe("Value"))
-                for k, v in data.items():
-                    row = table.row()
-                    row.cell(_pdf_safe(k))
-                    val_text = str(v) if not isinstance(v, (dict, list)) else json.dumps(v, default=str)
-                    row.cell(_pdf_safe(val_text))
-
-        elif isinstance(data, str):
-            text = _strip_markdown(data)
-            pdf.set_font("Helvetica", "", 10)
-            pdf.multi_cell(0, 5, _pdf_safe(text))
-        else:
-            pdf.set_font("Helvetica", "", 10)
-            pdf.multi_cell(0, 5, _pdf_safe(str(data) if data else ""))
-
-        pdf_buf = io.BytesIO(pdf.output())
-
+        pdf_bytes = render_workflow_pdf(output_data, title="Workflow Results")
         return StreamingResponse(
-            pdf_buf,
+            io.BytesIO(pdf_bytes),
             media_type="application/pdf",
             headers={"Content-Disposition": 'attachment; filename="results.pdf"'},
         )
