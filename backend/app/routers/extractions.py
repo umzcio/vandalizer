@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from typing import TYPE_CHECKING, Optional
 
 if TYPE_CHECKING:
@@ -36,6 +37,8 @@ from app.schemas.extractions import (
 )
 from app.services import extraction_validation_service as val_svc
 from app.services import search_set_service as svc
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -615,13 +618,16 @@ async def run_extraction_integrated(
     document_uuids: Optional[str] = Form(None),
     text: Optional[str] = Form(None),
     text_title: Optional[str] = Form(None),
+    ephemeral: bool = Form(True),
     files: list[UploadFile] = File(default=[]),
     user: User = Depends(get_api_key_user),
 ) -> dict:
     """Run extraction via external API.
 
     Accepts any combination of file uploads, existing document UUIDs, and a
-    raw ``text`` payload. At least one must be provided.
+    raw ``text`` payload. At least one must be provided. When ``ephemeral``
+    is true (default), documents created by this request are deleted after
+    the extraction completes; existing ``document_uuids`` are never touched.
     """
     import uuid as _uuid
     from pathlib import Path
@@ -631,6 +637,8 @@ async def run_extraction_integrated(
 
     settings = Settings()
     all_doc_uuids: list[str] = []
+    # Docs created by THIS request — only these are ever cleaned up.
+    created_doc_uuids: list[str] = []
 
     # Parse existing document UUIDs
     if document_uuids:
@@ -654,6 +662,7 @@ async def run_extraction_integrated(
         )
         await doc.insert()
         all_doc_uuids.append(uid)
+        created_doc_uuids.append(uid)
 
     # Handle file uploads
     for upload in files:
@@ -704,6 +713,7 @@ async def run_extraction_integrated(
         doc.task_id = task_id
         await doc.save()
         all_doc_uuids.append(uid)
+        created_doc_uuids.append(uid)
 
     if not all_doc_uuids:
         raise HTTPException(
@@ -763,6 +773,37 @@ async def run_extraction_integrated(
     except Exception as e:
         await activity_service.activity_finish(activity.id, ActivityStatus.FAILED, error=str(e))
         raise
+    finally:
+        if ephemeral and created_doc_uuids:
+            await _cleanup_ephemeral_docs(created_doc_uuids, user, settings)
+
+
+async def _cleanup_ephemeral_docs(uuids: list[str], user: User, settings) -> None:
+    """Best-effort delete of API-created docs (Mongo + file + ChromaDB).
+
+    Failures are logged and swallowed so cleanup never surfaces as an error
+    after the extraction itself has already succeeded.
+    """
+    from app.services import file_service
+
+    dm = None
+    try:
+        from app.services.document_manager import DocumentManager
+
+        dm = DocumentManager(persist_directory=settings.chromadb_persist_dir)
+    except Exception:
+        logger.warning("Could not initialize DocumentManager for ephemeral cleanup", exc_info=True)
+
+    for uid in uuids:
+        if dm is not None:
+            try:
+                dm.delete_document(user.user_id, uid)
+            except Exception:
+                logger.warning("ChromaDB cleanup failed for ephemeral doc %s", uid, exc_info=True)
+        try:
+            await file_service.delete_document(uid, settings, user=user)
+        except Exception:
+            logger.warning("Mongo/file cleanup failed for ephemeral doc %s", uid, exc_info=True)
 
 
 @router.get("/status/{activity_id}")
