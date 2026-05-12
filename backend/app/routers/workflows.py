@@ -5,6 +5,7 @@ import base64
 import csv
 import io
 import json
+import logging
 import re
 import zipfile
 
@@ -40,6 +41,8 @@ from app.schemas.workflows import (
 from app.rate_limit import limiter
 from app.services import workflow_service as svc
 from app.services.user_lookup import resolve_author, resolve_authors
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -574,24 +577,30 @@ async def download_results(
     )
 
 
-class SaveResultToLibraryRequest(BaseModel):
-    library_id: str
-    folder: str | None = None
-    note: str | None = None
-    tags: list[str] | None = None
+class SaveOutputToFolderRequest(BaseModel):
+    folder_uuid: str
+    format: str = "pdf"  # pdf | markdown | csv | json | text
+    file_name: str | None = None
 
 
-@router.post("/sessions/{session_id}/save-to-library")
-async def save_session_to_library(
+@router.post("/sessions/{session_id}/save-to-folder")
+async def save_session_output_to_folder(
     session_id: str,
-    req: SaveResultToLibraryRequest,
+    req: SaveOutputToFolderRequest,
     user: User = Depends(get_current_user),
 ):
-    """Save a workflow run's output as a library item in the chosen folder."""
-    from app.models.library import LibraryItemKind
+    """Save a workflow run's output as a SmartDocument in the chosen SmartFolder.
+
+    Writes the rendered output to disk (PDF/Markdown/CSV/JSON/text) and inserts
+    a SmartDocument record so the file shows up in the user's file structure.
+    """
     from app.models.workflow import WorkflowResult
-    from app.schemas.library import LibraryItemResponse
-    from app.services import library_service
+    from app.services.access_control import get_authorized_folder
+    from app.services.output_handlers import save_results_to_folder
+
+    valid_formats = {"pdf", "markdown", "csv", "json", "text"}
+    if req.format not in valid_formats:
+        raise HTTPException(status_code=400, detail=f"Invalid format. Use one of: {sorted(valid_formats)}")
 
     result = await WorkflowResult.find_one(WorkflowResult.session_id == session_id)
     if not result or not result.workflow:
@@ -600,18 +609,34 @@ async def save_session_to_library(
     if not wf:
         raise HTTPException(status_code=404, detail="Workflow result not found")
 
-    item = await library_service.add_item(
-        library_id=req.library_id,
-        user=user,
-        item_id=str(result.id),
-        kind=LibraryItemKind.WORKFLOW_RESULT.value,
-        note=req.note,
-        tags=req.tags,
-        folder=req.folder,
-    )
-    if not item:
-        raise HTTPException(status_code=404, detail="Library not found")
-    return LibraryItemResponse(**item)
+    folder = await get_authorized_folder(req.folder_uuid, user, manage=True)
+    if not folder:
+        raise HTTPException(status_code=404, detail="Folder not found")
+
+    storage_cfg: dict = {
+        "destination_folder": req.folder_uuid,
+        "format": req.format,
+        "on_rerun": "new",
+        "actor_user_id": user.user_id,
+    }
+    if req.file_name:
+        safe = "".join(c if c.isalnum() or c in " _-." else "_" for c in req.file_name).strip()
+        if safe:
+            storage_cfg["file_naming"] = safe.rsplit(".", 1)[0] if "." in safe else safe
+
+    result_doc = result.model_dump(by_alias=True)
+    result_doc["_id"] = result.id
+    result_doc["workflow"] = result.workflow
+
+    try:
+        file_path = await asyncio.to_thread(save_results_to_folder, result_doc, storage_cfg)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception:
+        logger.exception("Failed to save workflow output to folder")
+        raise HTTPException(status_code=500, detail="Failed to save output")
+
+    return {"ok": True, "folder_uuid": req.folder_uuid, "file_path": file_path}
 
 
 @router.get("/{workflow_id}/export")

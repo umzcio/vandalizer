@@ -110,7 +110,6 @@ export function LibraryItemsPanel({ library, teamId }: Props) {
             <option value="">All types</option>
             <option value="workflow">Workflows</option>
             <option value="search_set">Extractions</option>
-            <option value="workflow_result">Workflow runs</option>
           </select>
         </div>
 

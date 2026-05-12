@@ -8,7 +8,7 @@ import {
   ChevronDown, ChevronRight, ArrowUp, ArrowDown,
   Circle, Hand, Keyboard, Sparkles, ShieldCheck, Type,
   ArrowRight, Pause, TrendingUp, RefreshCw,
-  Upload, Clock, Copy, Check, BookmarkPlus,
+  Upload, Clock, Copy, Check, FolderInput,
 } from 'lucide-react'
 import { useWorkspace } from '../../contexts/WorkspaceContext'
 import { useToast } from '../../contexts/ToastContext'
@@ -43,7 +43,7 @@ import { marked } from 'marked'
 import { LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer } from 'recharts'
 import { QualityBadge } from '../library/QualityBadge'
 import { QualitySparkline } from '../library/QualitySparkline'
-import { SaveWorkflowResultDialog } from '../library/SaveWorkflowResultDialog'
+import { SaveWorkflowOutputDialog } from './SaveWorkflowOutputDialog'
 import { useQualitySparkline } from '../../hooks/useQualitySparkline'
 import { relativeTime } from '../../utils/time'
 import { VerificationSubmitDialog } from '../shared/VerificationSubmitDialog'
@@ -1121,6 +1121,7 @@ function DesignCanvas({
           <WorkflowOutputCard
             status={runnerStatus}
             sessionId={runnerSessionId}
+            workflowName={workflow?.name}
             running={runnerRunning}
             runElapsed={runElapsed}
             showDownloadPopup={showDownloadPopup}
@@ -3766,9 +3767,10 @@ function TaskEditModal({ task, selectedDocUuids, workflow, workflowId, onClose, 
 // Workflow output card (shown in design canvas during/after run)
 // ---------------------------------------------------------------------------
 
-function WorkflowOutputCard({ status, sessionId, running, runElapsed, showDownloadPopup, setShowDownloadPopup }: {
+function WorkflowOutputCard({ status, sessionId, workflowName, running, runElapsed, showDownloadPopup, setShowDownloadPopup }: {
   status: WorkflowStatus | null
   sessionId: string | null
+  workflowName?: string
   running: boolean
   runElapsed: number
   showDownloadPopup: boolean
@@ -3783,9 +3785,8 @@ function WorkflowOutputCard({ status, sessionId, running, runElapsed, showDownlo
   const [approvalComments, setApprovalComments] = useState('')
   const [approvalProcessing, setApprovalProcessing] = useState(false)
   const [approvalError, setApprovalError] = useState<string | null>(null)
-  const [showSaveToLibrary, setShowSaveToLibrary] = useState(false)
+  const [showSaveToFolder, setShowSaveToFolder] = useState(false)
   const { toast } = useToast()
-  const { user } = useAuth()
 
   useEffect(() => {
     if (!isPendingApproval || !status?.approval_request_id) return
@@ -4045,7 +4046,7 @@ function WorkflowOutputCard({ status, sessionId, running, runElapsed, showDownlo
             )}
           </div>
             <button
-              onClick={() => setShowSaveToLibrary(true)}
+              onClick={() => setShowSaveToFolder(true)}
               disabled={!sessionId}
               style={{
                 display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px',
@@ -4056,17 +4057,17 @@ function WorkflowOutputCard({ status, sessionId, running, runElapsed, showDownlo
                 color: '#374151', opacity: sessionId ? 1 : 0.5,
               }}
             >
-              <BookmarkPlus style={{ width: 14, height: 14 }} />
-              Save to library
+              <FolderInput style={{ width: 14, height: 14 }} />
+              Save to folder
             </button>
           </div>
-          {showSaveToLibrary && sessionId && (
-            <SaveWorkflowResultDialog
+          {showSaveToFolder && sessionId && (
+            <SaveWorkflowOutputDialog
               sessionId={sessionId}
-              teamId={user?.current_team ?? null}
+              workflowName={workflowName}
               outputPreview={output}
-              onClose={() => setShowSaveToLibrary(false)}
-              onSaved={() => toast('Saved to library', 'success')}
+              onClose={() => setShowSaveToFolder(false)}
+              onSaved={() => toast('Saved to folder', 'success')}
             />
           )}
         </div>

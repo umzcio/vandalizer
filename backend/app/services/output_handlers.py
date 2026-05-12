@@ -46,6 +46,10 @@ def save_results_to_folder(result_doc: dict, storage_config: dict) -> str:
     populated from the markdown rendition, the workflow's team_id, and origin
     metadata identifying this run, so that downstream workflows can consume it
     as input and own-origin docs can be skipped to prevent loops.
+
+    ``storage_config["actor_user_id"]`` overrides the document owner; without
+    it, the doc is owned by the workflow's owner (the right default for passive
+    runs). Manual "save output to my folder" uses the override.
     """
     db = get_sync_db()
     folder_id = storage_config.get("destination_folder")
@@ -76,8 +80,8 @@ def save_results_to_folder(result_doc: dict, storage_config: dict) -> str:
     final_output = result_doc.get("final_output") or {}
     output_data = final_output.get("output")
 
-    user_id = workflow.get("user_id", "system")
-    team_id = workflow.get("team_id")
+    user_id = storage_config.get("actor_user_id") or workflow.get("user_id", "system")
+    team_id = folder.get("team_id") or workflow.get("team_id")
     from app.config import Settings as _Settings
     upload_dir = _Settings().upload_dir
     dir_path = Path(upload_dir) / user_id

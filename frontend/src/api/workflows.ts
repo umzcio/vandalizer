@@ -207,12 +207,14 @@ export function downloadResults(sessionId: string, format: string = 'json', opts
   return `/api/workflows/download?${params.toString()}`
 }
 
-export function saveResultToLibrary(
+export type SaveOutputFormat = 'pdf' | 'markdown' | 'csv' | 'json' | 'text'
+
+export function saveResultToFolder(
   sessionId: string,
-  data: { library_id: string; folder?: string | null; note?: string; tags?: string[] },
+  data: { folder_uuid: string; format: SaveOutputFormat; file_name?: string },
 ) {
-  return apiFetch<import('../types/library').LibraryItem>(
-    `/api/workflows/sessions/${encodeURIComponent(sessionId)}/save-to-library`,
+  return apiFetch<{ ok: boolean; folder_uuid: string; file_path: string }>(
+    `/api/workflows/sessions/${encodeURIComponent(sessionId)}/save-to-folder`,
     { method: 'POST', body: JSON.stringify(data) },
   )
 }
