@@ -707,8 +707,8 @@ export function ChatPanel({ conversationToLoad, pendingMessage, onPendingMessage
           </div>
         )}
 
-        {/* Chat messages — centered under banner for first-session */}
-        <div style={effectiveFirstSession ? { maxWidth: 640, margin: '0 auto' } : undefined}>
+        {/* Chat messages — constrained to match input cell width */}
+        <div style={{ maxWidth: 640, margin: '0 auto' }}>
           {messages.map((msg, i) => {
             const isExcluded = contextMode !== 'full' && contextCutoffIndex > 0 && i < contextCutoffIndex
             const showBoundary = contextMode !== 'full' && contextCutoffIndex > 0 && i === contextCutoffIndex
@@ -860,27 +860,29 @@ export function ChatPanel({ conversationToLoad, pendingMessage, onPendingMessage
         </div>
       )}
 
-      {/* Input */}
-      <ChatInput
-        onSend={handleSend}
-        onAttachFile={handleAttachFile}
-        onAttachLink={handleAttachLink}
-        disabled={isStreaming}
-        selectedModel={selectedModel}
-        onModelChange={handleModelChange}
-        onExport={handleExport}
-        hasMessages={messages.length > 0}
-        hasDocuments={fileAttachments.length > 0 || urlAttachments.length > 0 || selectedDocUuids.length > 0 || selectedFolderUuids.length > 0}
-        contextMeter={
-          messages.length > 0 && contextTokens > 0 ? (
-            <ContextMeter
-              tokensUsed={contextTokens}
-              contextWindow={contextWindow}
-              onClick={() => setShowContextDialog(true)}
-            />
-          ) : null
-        }
-      />
+      {/* Input — constrained to match chat message width */}
+      <div style={{ maxWidth: 640, margin: '0 auto', width: '100%' }}>
+        <ChatInput
+          onSend={handleSend}
+          onAttachFile={handleAttachFile}
+          onAttachLink={handleAttachLink}
+          disabled={isStreaming}
+          selectedModel={selectedModel}
+          onModelChange={handleModelChange}
+          onExport={handleExport}
+          hasMessages={messages.length > 0}
+          hasDocuments={fileAttachments.length > 0 || urlAttachments.length > 0 || selectedDocUuids.length > 0 || selectedFolderUuids.length > 0}
+          contextMeter={
+            messages.length > 0 && contextTokens > 0 ? (
+              <ContextMeter
+                tokensUsed={contextTokens}
+                contextWindow={contextWindow}
+                onClick={() => setShowContextDialog(true)}
+              />
+            ) : null
+          }
+        />
+      </div>
 
       {/* Context limit dialog */}
       <ContextLimitDialog
