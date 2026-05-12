@@ -132,13 +132,13 @@ def generate_extraction_pdf(
     story = []
 
     # Header
-    story.append(Paragraph(title, title_style))
+    story.append(Paragraph(_xml_escape(title), title_style))
 
     # Meta row
     date_str = datetime.date.today().strftime("%B %d, %Y")
     doc_part = f"Documents: {', '.join(document_names)}" if document_names else ""
     meta_parts = [date_str] + ([doc_part] if doc_part else [])
-    story.append(Paragraph(" · ".join(meta_parts), meta_style))
+    story.append(Paragraph(_xml_escape(" · ".join(meta_parts)), meta_style))
 
     # Build table data
     table_data = [["Field", "Value"]]
@@ -146,8 +146,8 @@ def generate_extraction_pdf(
         label = item.title if item.title else item.searchphrase
         value = results.get(item.searchphrase, "")
         table_data.append([
-            Paragraph(label, cell_style),
-            Paragraph(str(value), cell_style),
+            Paragraph(_xml_escape(label), cell_style),
+            Paragraph(_xml_escape(str(value)), cell_style),
         ])
 
     col_widths = [2.5 * inch, 4.5 * inch]
@@ -197,9 +197,36 @@ _MD_FENCE_RE = re.compile(r"^\s{0,3}(```+|~~~+)\s*([\w+-]*)\s*$")
 _MD_TABLE_SEP_RE = re.compile(r"^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$")
 
 
+# Unicode characters outside Helvetica's WinAnsi encoding render as ■ boxes.
+# LLM/Word output frequently uses U+2011 (non-breaking hyphen) inside compound
+# words like "non‑expert" / "cross‑functional"; replace these with safe ASCII.
+_PDF_CHAR_REPLACEMENTS = {
+    "‐": "-",   # HYPHEN
+    "‑": "-",   # NON-BREAKING HYPHEN
+    "‒": "-",   # FIGURE DASH
+    "−": "-",   # MINUS SIGN
+    "⁃": "-",   # HYPHEN BULLET
+    "‧": "-",   # HYPHENATION POINT
+    "­": "",    # SOFT HYPHEN
+    "​": "",    # ZERO WIDTH SPACE
+    "‌": "",    # ZERO WIDTH NON-JOINER
+    "‍": "",    # ZERO WIDTH JOINER
+    "⁠": "",    # WORD JOINER
+    "﻿": "",    # ZERO WIDTH NO-BREAK SPACE
+}
+
+
+def _normalize_for_pdf(text: str) -> str:
+    for src, dst in _PDF_CHAR_REPLACEMENTS.items():
+        if src in text:
+            text = text.replace(src, dst)
+    return text
+
+
 def _xml_escape(text: str) -> str:
     return (
-        text.replace("&", "&amp;")
+        _normalize_for_pdf(text)
+        .replace("&", "&amp;")
         .replace("<", "&lt;")
         .replace(">", "&gt;")
     )
@@ -483,7 +510,7 @@ def _markdown_to_story(text: str, styles: dict, usable_width: float) -> list:
                     break
                 code_lines.append(next_line)
                 i += 1
-            story.append(Preformatted("\n".join(code_lines), styles["code"]))
+            story.append(Preformatted(_normalize_for_pdf("\n".join(code_lines)), styles["code"]))
             continue
 
         # Markdown table — header row followed by a separator row of dashes.
