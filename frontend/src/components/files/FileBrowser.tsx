@@ -249,12 +249,14 @@ export function FileBrowser({ onDocClick, searchQuery = '', contentMatches, onSe
         else promises.push(deleteFile(uuid))
       }
       await Promise.all(promises)
-      setSelectedUuids(new Set())
-      refresh()
     } catch (err: unknown) {
       alert(err instanceof Error ? err.message : 'Failed to delete')
-      refresh()
     } finally {
+      // Always clear selection + refresh: the user confirmed a destructive
+      // action and the state of the items is now uncertain. Refresh
+      // reconciles what's actually left on the server.
+      setSelectedUuids(new Set())
+      refresh()
       setBulkDeleting(false)
     }
   }, [selectedUuids, folders, refresh, confirm])
