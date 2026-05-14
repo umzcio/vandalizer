@@ -1333,7 +1333,44 @@ async def add_model(
 
 
 # ---------------------------------------------------------------------------
-# 7b. PUT /config/models/{index}  - Update an existing model
+# 7b. PUT /config/models/default  - Set (or clear) the system default model
+# ---------------------------------------------------------------------------
+# Defined before PUT /config/models/{index} so "default" isn't parsed as an int.
+
+class DefaultModelRequest(BaseModel):
+    name: str = ""
+
+
+@router.put("/config/models/default")
+async def set_default_model(
+    body: DefaultModelRequest,
+    user: User = Depends(get_current_user),
+):
+    await _require_superadmin(user)
+
+    cfg = await SystemConfig.get_config()
+    name = (body.name or "").strip()
+
+    if name:
+        match = next(
+            (m for m in cfg.available_models if isinstance(m, dict) and m.get("name") == name),
+            None,
+        )
+        if not match:
+            raise HTTPException(status_code=404, detail=f"Model '{name}' is not configured")
+
+    cfg.default_model = name
+    cfg.updated_at = datetime.datetime.now(datetime.timezone.utc)
+    cfg.updated_by = user.user_id
+    await cfg.save()
+    clear_agent_caches()
+    await _audit(user, "set_default_model", f"Default model: {name or '(cleared)'}")
+
+    return {"status": "ok", "default_model": cfg.default_model or ""}
+
+
+# ---------------------------------------------------------------------------
+# 7c. PUT /config/models/{index}  - Update an existing model
 # ---------------------------------------------------------------------------
 
 @router.put("/config/models/{index}")
@@ -1410,42 +1447,6 @@ async def delete_model(
     await _audit(user, "delete_model", f"Deleted model at index {index}: {removed.get('tag', '?')}")
 
     return {"status": "ok", "removed": removed, "models": cfg.available_models, "default_model": cfg.default_model or ""}
-
-
-# ---------------------------------------------------------------------------
-# 8b. PUT /config/models/default  - Set (or clear) the system default model
-# ---------------------------------------------------------------------------
-
-class DefaultModelRequest(BaseModel):
-    name: str = ""
-
-
-@router.put("/config/models/default")
-async def set_default_model(
-    body: DefaultModelRequest,
-    user: User = Depends(get_current_user),
-):
-    await _require_superadmin(user)
-
-    cfg = await SystemConfig.get_config()
-    name = (body.name or "").strip()
-
-    if name:
-        match = next(
-            (m for m in cfg.available_models if isinstance(m, dict) and m.get("name") == name),
-            None,
-        )
-        if not match:
-            raise HTTPException(status_code=404, detail=f"Model '{name}' is not configured")
-
-    cfg.default_model = name
-    cfg.updated_at = datetime.datetime.now(datetime.timezone.utc)
-    cfg.updated_by = user.user_id
-    await cfg.save()
-    clear_agent_caches()
-    await _audit(user, "set_default_model", f"Default model: {name or '(cleared)'}")
-
-    return {"status": "ok", "default_model": cfg.default_model or ""}
 
 
 # ---------------------------------------------------------------------------
