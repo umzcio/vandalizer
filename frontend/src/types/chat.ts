@@ -47,6 +47,7 @@ export interface ActivityEvent {
   tokens_output: number
   message_count: number
   result_snapshot: Record<string, unknown>
+  meta_summary?: Record<string, unknown>
 }
 
 export interface ContextBudgetPlan {

@@ -198,6 +198,20 @@ export function ActivityRail() {
             const staleTooltip = stale
               ? `Timed out — no progress for over ${staleThresholdMinutes} minutes.`
               : undefined
+            const aiTitleReady = (activity.meta_summary as { description_generated?: boolean } | undefined)
+              ?.description_generated === true
+            // Once the activity is done but the title generator hasn't
+            // finished yet, show a shimmering placeholder instead of the
+            // raw working title — signals "we're cooking up a name".
+            // Cap to ~2 min after completion so a silently failed Celery
+            // task can't leave the row stuck on the placeholder.
+            const finishedAt = activity.finished_at ? new Date(activity.finished_at).getTime() : 0
+            const ageMs = finishedAt ? Date.now() - finishedAt : 0
+            const awaitingTitle =
+              activity.status === 'completed' && !aiTitleReady && ageMs < 120000
+            const displayTitle = awaitingTitle
+              ? 'Generating title…'
+              : (activity.title || activity.type)
 
             return (
               <div
@@ -228,17 +242,22 @@ export function ActivityRail() {
 
                 {!railDocked && (
                   <>
-                    {/* Title + status */}
+                    {/* Title + status — clamp to 2 lines so AI titles can
+                        breathe without blowing out the rail width. */}
                     <div className="min-w-0 flex-1">
                       <div
                         className={cn(
-                          'text-[11px] leading-[1.4] break-words',
+                          'text-[11px] leading-[1.4] break-words line-clamp-2',
                           running ? 'text-white' : 'text-[#111]',
+                          // Shimmer when the AI title just arrived (one-shot)
+                          // or while we're waiting for it to generate (loops
+                          // via title-shimmer-loop).
                           titleFresh && !running ? 'title-shimmer' : '',
+                          awaitingTitle ? 'title-shimmer-loop' : '',
                         )}
                         onAnimationEnd={titleFresh ? () => markTitleShimmered(activity.id) : undefined}
                       >
-                        {activity.title || activity.type}
+                        {displayTitle}
                       </div>
                     </div>
 
