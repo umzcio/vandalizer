@@ -14,6 +14,7 @@ class SmartDocument(Document):
     validation_feedback: Optional[str] = None
     task_id: Optional[str] = None
     task_status: Optional[str] = None
+    error_message: Optional[str] = None
     title: str
     raw_text: str = ""
     extension: str = "pdf"

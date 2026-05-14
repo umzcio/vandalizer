@@ -103,6 +103,35 @@ def perform_extraction_and_update(self, document_uuid: str, extension: str) -> s
         from app.services.context_budget import count_tokens
         token_count = count_tokens(raw_text) if raw_text else 0
 
+        # An "extracted successfully but got zero text" outcome is almost always
+        # a silent OCR/extraction failure (image-only PDF, OCR endpoint down,
+        # encrypted file). Mark it as error so the UI can surface it and offer
+        # a retry, rather than presenting an empty document.
+        if not raw_text or not raw_text.strip():
+            logger.warning(
+                "Document %s produced empty extracted text (ext=%s) — marking as error",
+                document_uuid, extension,
+            )
+            db.smart_document.update_one(
+                {"uuid": document_uuid},
+                {
+                    "$set": {
+                        "raw_text": "",
+                        "processing": False,
+                        "token_count": 0,
+                        "text_markers": [],
+                        "task_status": "error",
+                        "error_message": (
+                            "We couldn't extract any text from this document. "
+                            "It may be image-only, encrypted, or our OCR service "
+                            "may be temporarily unavailable. Try retrying — if "
+                            "it keeps failing, re-upload or contact support."
+                        ),
+                    }
+                },
+            )
+            return ""
+
         db.smart_document.update_one(
             {"uuid": document_uuid},
             {
@@ -111,6 +140,7 @@ def perform_extraction_and_update(self, document_uuid: str, extension: str) -> s
                     "processing": False,
                     "token_count": token_count,
                     "text_markers": text_markers,
+                    "error_message": None,
                 }
             },
         )
@@ -118,10 +148,17 @@ def perform_extraction_and_update(self, document_uuid: str, extension: str) -> s
         return raw_text
 
     except Exception as e:
-        logger.error("Error extracting text from document %s: %s", document_uuid, e)
+        logger.exception("Error extracting text from document %s", document_uuid)
         db.smart_document.update_one(
             {"uuid": document_uuid},
-            {"$set": {"raw_text": "", "processing": False}},
+            {
+                "$set": {
+                    "raw_text": "",
+                    "processing": False,
+                    "task_status": "error",
+                    "error_message": f"Text extraction failed: {str(e)[:300]}",
+                }
+            },
         )
         return ""
 
@@ -135,15 +172,28 @@ def perform_extraction_and_update(self, document_uuid: str, extension: str) -> s
     default_retry_delay=5,
 )
 def update_document_fields(self, document_uuid: str) -> None:
-    """Mark document extraction as complete, then check folder watch automations."""
+    """Mark document extraction as complete, then check folder watch automations.
+
+    Skips the complete status if extraction already flagged the doc as errored —
+    we don't want to mask a silent OCR failure with a green checkmark.
+    """
     db = get_sync_db()
-    result = db.smart_document.update_one(
+    doc = db.smart_document.find_one({"uuid": document_uuid}, {"task_status": 1})
+    if not doc:
+        logger.warning("Document %s not found for update", document_uuid)
+        return
+
+    if doc.get("task_status") == "error":
+        db.smart_document.update_one(
+            {"uuid": document_uuid},
+            {"$set": {"task_id": None}},
+        )
+        return
+
+    db.smart_document.update_one(
         {"uuid": document_uuid},
         {"$set": {"task_id": None, "task_status": "complete"}},
     )
-    if result.matched_count == 0:
-        logger.warning("Document %s not found for update", document_uuid)
-        return
 
     # Check for folder watch automations targeting this document's folder
     try:
@@ -370,19 +420,33 @@ def _process_extraction_outputs(db, automation: dict, results: dict) -> None:
     default_retry_delay=5,
 )
 def cleanup_document(self, document_uuid: str) -> None:
-    """Error handler — mark document as errored with details."""
+    """Error handler — mark document as errored with details.
+
+    If the extraction task already wrote a specific error_message before raising,
+    keep it (it's more diagnostic than the generic fallback below).
+    """
     db = get_sync_db()
-    result = db.smart_document.update_one(
-        {"uuid": document_uuid},
-        {"$set": {
-            "task_id": None,
-            "task_status": "error",
-            "processing": False,
-            "error_message": "Document extraction failed. Please try re-uploading.",
-        }},
+    existing = db.smart_document.find_one(
+        {"uuid": document_uuid}, {"error_message": 1}
     )
-    if result.matched_count == 0:
+    if not existing:
         logger.warning("Document %s not found for cleanup", document_uuid)
+        return
+
+    update_fields = {
+        "task_id": None,
+        "task_status": "error",
+        "processing": False,
+    }
+    if not existing.get("error_message"):
+        update_fields["error_message"] = (
+            "Document extraction failed. Please retry or re-upload."
+        )
+
+    db.smart_document.update_one(
+        {"uuid": document_uuid},
+        {"$set": update_fields},
+    )
 
 
 @celery_app.task(

@@ -136,7 +136,7 @@ class TestPerformExtractionAndUpdate:
 
     @patch("app.tasks.document_tasks.get_sync_db")
     @patch("app.config.Settings")
-    @patch("app.services.document_readers.extract_text_from_file", side_effect=RuntimeError("corrupt file"))
+    @patch("app.services.document_readers.extract_text_with_markers", side_effect=RuntimeError("corrupt file"))
     def test_handles_extraction_error_gracefully(self, mock_extract, MockSettings, mock_get_db):
         from app.tasks.document_tasks import perform_extraction_and_update
 
@@ -151,10 +151,38 @@ class TestPerformExtractionAndUpdate:
         result = perform_extraction_and_update(document_uuid="doc-1", extension="pdf")
 
         assert result == ""
-        # Should have set processing to False and raw_text to ""
+        # Should mark the doc as errored with a specific message so the UI
+        # can surface the failure rather than rendering an empty document.
         update_call = db.smart_document.update_one.call_args_list[-1]
         update_set = update_call[0][1]["$set"]
         assert update_set["processing"] is False
+        assert update_set["task_status"] == "error"
+        assert "extraction failed" in update_set["error_message"].lower()
+
+    @patch("app.tasks.document_tasks.get_sync_db")
+    @patch("app.config.Settings")
+    @patch("app.services.document_readers.extract_text_with_markers", return_value=("", []))
+    def test_marks_error_when_extraction_returns_no_text(self, mock_extract, MockSettings, mock_get_db):
+        """OCR returning an empty string (endpoint down, image-only PDF) is the
+        most common silent failure — it must be surfaced, not hidden."""
+        from app.tasks.document_tasks import perform_extraction_and_update
+
+        db = MagicMock()
+        mock_get_db.return_value = db
+        db.smart_document.find_one.return_value = {"uuid": "doc-1", "path": "scan.pdf"}
+
+        settings = MagicMock()
+        settings.upload_dir = "/uploads"
+        MockSettings.return_value = settings
+
+        result = perform_extraction_and_update(document_uuid="doc-1", extension="pdf")
+
+        assert result == ""
+        update_call = db.smart_document.update_one.call_args_list[-1]
+        update_set = update_call[0][1]["$set"]
+        assert update_set["task_status"] == "error"
+        assert update_set["raw_text"] == ""
+        assert update_set["error_message"]  # not None / not empty
 
     @patch("app.tasks.document_tasks.get_sync_db")
     @patch("app.config.Settings")
@@ -190,6 +218,7 @@ class TestUpdateDocumentFields:
 
         db = MagicMock()
         mock_get_db.return_value = db
+        db.smart_document.find_one.return_value = {"task_status": "extracting"}
         db.smart_document.update_one.return_value = MagicMock(matched_count=1)
 
         update_document_fields(document_uuid="doc-1")
@@ -200,15 +229,34 @@ class TestUpdateDocumentFields:
 
     @patch("app.tasks.document_tasks._check_folder_watch_automations")
     @patch("app.tasks.document_tasks.get_sync_db")
+    def test_preserves_error_status(self, mock_get_db, mock_check):
+        from app.tasks.document_tasks import update_document_fields
+
+        db = MagicMock()
+        mock_get_db.return_value = db
+        db.smart_document.find_one.return_value = {"task_status": "error"}
+
+        update_document_fields(document_uuid="doc-1")
+
+        # When extraction already flagged an error, we should clear the task_id
+        # but not overwrite task_status with "complete".
+        update_set = db.smart_document.update_one.call_args[0][1]["$set"]
+        assert "task_status" not in update_set
+        assert update_set["task_id"] is None
+        mock_check.assert_not_called()
+
+    @patch("app.tasks.document_tasks._check_folder_watch_automations")
+    @patch("app.tasks.document_tasks.get_sync_db")
     def test_returns_early_when_doc_not_found(self, mock_get_db, mock_check):
         from app.tasks.document_tasks import update_document_fields
 
         db = MagicMock()
         mock_get_db.return_value = db
-        db.smart_document.update_one.return_value = MagicMock(matched_count=0)
+        db.smart_document.find_one.return_value = None
 
         update_document_fields(document_uuid="missing")
 
+        db.smart_document.update_one.assert_not_called()
         mock_check.assert_not_called()
 
     @patch("app.tasks.document_tasks._check_folder_watch_automations", side_effect=RuntimeError("boom"))
@@ -218,6 +266,7 @@ class TestUpdateDocumentFields:
 
         db = MagicMock()
         mock_get_db.return_value = db
+        db.smart_document.find_one.return_value = {"task_status": "extracting"}
         db.smart_document.update_one.return_value = MagicMock(matched_count=1)
 
         # Should not raise
@@ -330,6 +379,8 @@ class TestCleanupDocument:
 
         db = MagicMock()
         mock_get_db.return_value = db
+        # No pre-existing error_message — cleanup should add the generic fallback.
+        db.smart_document.find_one.return_value = {"error_message": None}
         db.smart_document.update_one.return_value = MagicMock(matched_count=1)
 
         cleanup_document(document_uuid="doc-1")
@@ -340,15 +391,32 @@ class TestCleanupDocument:
         assert "error_message" in update_set
 
     @patch("app.tasks.document_tasks.get_sync_db")
+    def test_preserves_specific_error_message(self, mock_get_db):
+        from app.tasks.document_tasks import cleanup_document
+
+        db = MagicMock()
+        mock_get_db.return_value = db
+        # The extraction task already wrote a specific message — don't overwrite.
+        db.smart_document.find_one.return_value = {"error_message": "OCR endpoint timed out"}
+        db.smart_document.update_one.return_value = MagicMock(matched_count=1)
+
+        cleanup_document(document_uuid="doc-1")
+
+        update_set = db.smart_document.update_one.call_args[0][1]["$set"]
+        assert update_set["task_status"] == "error"
+        assert "error_message" not in update_set
+
+    @patch("app.tasks.document_tasks.get_sync_db")
     def test_handles_missing_document(self, mock_get_db):
         from app.tasks.document_tasks import cleanup_document
 
         db = MagicMock()
         mock_get_db.return_value = db
-        db.smart_document.update_one.return_value = MagicMock(matched_count=0)
+        db.smart_document.find_one.return_value = None
 
         # Should not raise
         cleanup_document(document_uuid="missing")
+        db.smart_document.update_one.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

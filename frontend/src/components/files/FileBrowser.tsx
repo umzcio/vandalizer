@@ -46,11 +46,17 @@ interface FileBrowserProps {
   onSelectionChange?: (docUuids: string[]) => void
   onDocNamesChange?: (names: Record<string, string>) => void
   onFolderSelectionChange?: (folderUuids: string[]) => void
+  // Emits the subset of selected docs that are still being processed
+  // (text extraction, OCR, indexing, etc.). Used by the chat banner to
+  // avoid the false "ready for analysis" claim.
+  onSelectionProcessingChange?: (
+    docs: Array<{ uuid: string; title: string; status: string | null }>,
+  ) => void
   currentFolder?: string | null
   onFolderNavigate?: (folderId: string | null) => void
 }
 
-export function FileBrowser({ onDocClick, searchQuery = '', contentMatches, onSelectionChange, onDocNamesChange, onFolderSelectionChange, currentFolder: controlledFolder, onFolderNavigate }: FileBrowserProps) {
+export function FileBrowser({ onDocClick, searchQuery = '', contentMatches, onSelectionChange, onDocNamesChange, onFolderSelectionChange, onSelectionProcessingChange, currentFolder: controlledFolder, onFolderNavigate }: FileBrowserProps) {
   const { currentTeam } = useTeams()
   const confirm = useConfirm()
 
@@ -112,7 +118,14 @@ export function FileBrowser({ onDocClick, searchQuery = '', contentMatches, onSe
     const names: Record<string, string> = {}
     for (const d of selectedDocs) names[d.uuid] = d.title
     onDocNamesChange?.(names)
-  }, [selectedUuids, documents, onSelectionChange, onDocNamesChange])
+    // And which selected docs are still processing — re-emitted on each poll
+    // because useDocuments refetches while any doc is processing.
+    onSelectionProcessingChange?.(
+      selectedDocs
+        .filter(d => d.processing)
+        .map(d => ({ uuid: d.uuid, title: d.title, status: d.task_status })),
+    )
+  }, [selectedUuids, documents, onSelectionChange, onDocNamesChange, onSelectionProcessingChange])
 
   // Sync selected folder UUIDs to parent
   useEffect(() => {

@@ -45,4 +45,6 @@ export interface PollStatusResponse {
   validation_feedback: string | null
   valid: boolean
   path: string | null
+  error_message: string | null
+  processing: boolean
 }

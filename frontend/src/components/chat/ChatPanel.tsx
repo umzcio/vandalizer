@@ -16,6 +16,7 @@ import { convertDocumentsToKB } from '../../api/knowledge'
 import { getUserConfig, updateUserConfig, markFirstSessionComplete } from '../../api/config'
 import type { FileAttachment, UrlAttachment } from '../../types/chat'
 import type { ModelInfo } from '../../types/workflow'
+import { stageCopy } from '../../utils/processingStatus'
 
 const LOADING_WORDS = [
   'Thinking', 'Vandalizing', 'Pondering', 'Analyzing',
@@ -80,7 +81,7 @@ export function ChatPanel({ conversationToLoad, pendingMessage, onPendingMessage
     setActivity,
   } = useChat()
 
-  const { bumpActivitySignal, processingDoc, selectedDocUuids, setSelectedDocUuids, selectedDocNames, setSelectedDocNames, selectedFolderUuids, activeKBUuid, activeKBTitle, activateKB, deactivateKB } = useWorkspace()
+  const { bumpActivitySignal, processingDoc, selectedDocsProcessing, selectedDocUuids, setSelectedDocUuids, selectedDocNames, setSelectedDocNames, selectedFolderUuids, activeKBUuid, activeKBTitle, activateKB, deactivateKB } = useWorkspace()
   const [convertingToKB, setConvertingToKB] = useState(false)
   const { toast } = useToast()
   const { pills: onboardingPills, isFirstSession, loading: onboardingLoading } = useOnboarding()
@@ -299,6 +300,14 @@ export function ChatPanel({ conversationToLoad, pendingMessage, onPendingMessage
   }, [pendingMessage, isStreaming, send, onPendingMessageConsumed])
 
   const hasDocContext = fileAttachments.length > 0 || urlAttachments.length > 0 || selectedDocUuids.length > 0 || selectedFolderUuids.length > 0
+
+  // For the banner / pills: prefer the doc the user is actively viewing, but
+  // fall back to any selected-but-still-processing doc so the chat doesn't
+  // claim "ready for analysis" while OCR/indexing is still in flight.
+  const bannerProcessingDoc = processingDoc ?? (selectedDocsProcessing.length > 0
+    ? { title: selectedDocsProcessing[0].title, status: selectedDocsProcessing[0].status }
+    : null)
+  const processingCount = processingDoc ? 1 : selectedDocsProcessing.length
 
   const handleSend = (message: string, includeOnboardingContext?: boolean) => {
     // In first-session mode, every message uses the first-session system prompt.
@@ -640,7 +649,7 @@ export function ChatPanel({ conversationToLoad, pendingMessage, onPendingMessage
               />
               <div className="relative z-[1] flex items-center gap-4">
                 <div style={{ animation: 'float 3s ease-in-out infinite' }} className="shrink-0">
-                  {processingDoc ? (
+                  {bannerProcessingDoc ? (
                     <Loader2 className="h-7 w-7 opacity-90 animate-spin" />
                   ) : activeKBUuid ? (
                     <BookOpen className="h-7 w-7 opacity-90" />
@@ -650,12 +659,10 @@ export function ChatPanel({ conversationToLoad, pendingMessage, onPendingMessage
                 </div>
                 <div>
                   <div style={{ fontSize: 15, fontWeight: 600, lineHeight: 1.3 }}>
-                    {processingDoc
-                      ? processingDoc.status === 'layout' ? 'Converting & Preparing Your Document...'
-                        : processingDoc.status === 'ocr' ? 'Extracting Text From Your Document...'
-                        : processingDoc.status === 'security' ? 'Scanning Your Document...'
-                        : processingDoc.status === 'readying' ? 'Almost Ready...'
-                        : 'Processing Your Document...'
+                    {bannerProcessingDoc
+                      ? processingCount > 1
+                        ? `Preparing ${processingCount} documents…`
+                        : stageCopy(bannerProcessingDoc.status).title
                       : activeKBUuid
                         ? `Knowledge Base: ${activeKBTitle}`
                         : hasDocContext
@@ -663,12 +670,10 @@ export function ChatPanel({ conversationToLoad, pendingMessage, onPendingMessage
                           : 'What would you like to work on?'}
                   </div>
                   <div style={{ fontSize: 13, opacity: 0.8, marginTop: 2, fontWeight: 400 }}>
-                    {processingDoc
-                      ? processingDoc.status === 'layout' ? "We're converting your document so it can be read and analyzed accurately."
-                        : processingDoc.status === 'ocr' ? 'Running OCR to extract text content from your document.'
-                        : processingDoc.status === 'security' ? "Checking for any sensitive information in your document."
-                        : processingDoc.status === 'readying' ? 'Indexing your document for search and analysis.'
-                        : 'Please wait while we prepare your document.'
+                    {bannerProcessingDoc
+                      ? processingCount > 1
+                        ? "We'll be ready as soon as each document finishes processing."
+                        : stageCopy(bannerProcessingDoc.status).message
                       : activeKBUuid
                         ? 'Ask questions grounded in your indexed documents and sources.'
                         : hasDocContext
@@ -677,17 +682,13 @@ export function ChatPanel({ conversationToLoad, pendingMessage, onPendingMessage
                   </div>
                 </div>
               </div>
-              {processingDoc && (
+              {bannerProcessingDoc && (
                 <div className="relative z-[1]" style={{ marginTop: 16, height: 4, borderRadius: 2, backgroundColor: 'rgba(255,255,255,0.2)', overflow: 'hidden' }}>
                   <div
                     className="animate-pulse"
                     style={{
                       height: '100%', borderRadius: 2, backgroundColor: 'rgba(255,255,255,0.7)',
-                      width: processingDoc.status === 'layout' ? '20%'
-                        : processingDoc.status === 'ocr' ? '45%'
-                        : processingDoc.status === 'security' ? '65%'
-                        : processingDoc.status === 'readying' ? '85%'
-                        : '10%',
+                      width: `${Math.round(stageCopy(bannerProcessingDoc.status).progress * 100)}%`,
                       transition: 'width 0.5s ease',
                     }}
                   />
@@ -707,7 +708,7 @@ export function ChatPanel({ conversationToLoad, pendingMessage, onPendingMessage
               ] : onboardingPills).map(suggestion => (
                 <button
                   key={suggestion}
-                  disabled={!!processingDoc}
+                  disabled={!!bannerProcessingDoc}
                   onClick={() => handleSend(suggestion, !activeKBUuid && !hasDocContext)}
                   style={{
                     padding: '8px 14px',
@@ -718,12 +719,12 @@ export function ChatPanel({ conversationToLoad, pendingMessage, onPendingMessage
                     borderRadius: 20,
                     backgroundColor: '#fff',
                     color: '#374151',
-                    cursor: processingDoc ? 'default' : 'pointer',
+                    cursor: bannerProcessingDoc ? 'default' : 'pointer',
                     transition: 'all 0.15s',
-                    opacity: processingDoc ? 0.5 : 1,
+                    opacity: bannerProcessingDoc ? 0.5 : 1,
                   }}
                   onMouseEnter={e => {
-                    if (processingDoc) return
+                    if (bannerProcessingDoc) return
                     e.currentTarget.style.borderColor = 'var(--highlight-color, #eab308)'
                     e.currentTarget.style.backgroundColor = 'color-mix(in srgb, var(--highlight-color, #eab308) 8%, white)'
                   }}

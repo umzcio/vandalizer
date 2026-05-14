@@ -1,6 +1,7 @@
 import { Loader2, MoreHorizontal, AlertTriangle, Shield, AlertCircle } from 'lucide-react'
 import type { Document } from '../../types/document'
 import { formatFileDate } from '../../utils/time'
+import { stageCopy } from '../../utils/processingStatus'
 
 const CLASSIFICATION_STYLES: Record<string, { bg: string; text: string }> = {
   unrestricted: { bg: '#dcfce7', text: '#166534' },
@@ -157,7 +158,7 @@ export function FileRow({ doc, onClick, onContextMenu, selected, onToggleSelect,
       >
         <span className="group-hover:opacity-0 transition-opacity">
           {doc.processing ? (
-            <span style={{ color: 'var(--highlight-color)' }}>{doc.task_status || 'Processing...'}</span>
+            <span style={{ color: 'var(--highlight-color)' }}>{stageCopy(doc.task_status).short}</span>
           ) : (
             (doc.updated_at || doc.created_at) && formatFileDate(doc.updated_at || doc.created_at)
           )}

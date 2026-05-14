@@ -264,18 +264,33 @@ async def chat_stream(
     # independently by the budget planner.
     doc_segments: list[DocumentSegment] = []
     skipped_no_text: list[str] = []
+    errored_docs: list[str] = []
     for doc in documents:
         if doc.raw_text:
             doc_segments.append(DocumentSegment(
                 label=f"doc:{doc.title or doc.uuid}",
                 text=f"\n\n## Document: {doc.title}\n{doc.raw_text}",
             ))
+        elif doc.task_status == "error":
+            errored_docs.append(doc.title or doc.uuid)
         else:
             skipped_no_text.append(doc.title or doc.uuid)
 
     # Warn the caller about any selected document that the model won't see
-    # because text extraction hasn't finished (or produced no text).
+    # because text extraction hasn't finished, errored out, or the doc is gone.
     missing_uuids = [u for u in document_uuids if u not in {d.uuid for d in documents}]
+    if errored_docs:
+        joined = ", ".join(errored_docs[:5]) + ("…" if len(errored_docs) > 5 else "")
+        yield json.dumps({
+            "kind": "context_notice",
+            "content": (
+                f"{len(errored_docs)} selected document(s) failed text extraction "
+                f"and can't be used here: {joined}. Open the document and use "
+                "\"Retry extraction\" to try again."
+            ),
+            "action": "documents_extraction_failed",
+            "tokens_dropped": 0,
+        }) + "\n"
     if skipped_no_text or missing_uuids:
         names = list(skipped_no_text) + missing_uuids
         joined = ", ".join(names[:5]) + ("…" if len(names) > 5 else "")

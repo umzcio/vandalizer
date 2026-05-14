@@ -62,8 +62,10 @@ describe('FileRow', () => {
 
   it('shows processing spinner when doc.processing=true', () => {
     renderFileRow({ doc: makeDoc({ processing: true, task_status: 'readying' }) })
-    // The Loader2 icon has animate-spin class; check for the status text
-    expect(screen.getByText('readying')).toBeTruthy()
+    // The Loader2 icon has animate-spin class; the column shows a friendly
+    // label rather than the raw pipeline stage name.
+    expect(screen.getByText('Indexing…')).toBeTruthy()
+    expect(screen.queryByText('readying')).toBeNull()
   })
 
   it('checkbox calls onToggleSelect', () => {
