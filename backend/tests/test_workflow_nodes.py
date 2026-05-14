@@ -734,6 +734,35 @@ class TestAPICallNode:
         call_kwargs = mock_client.request.call_args[1]
         assert call_kwargs["headers"]["Authorization"] == "Bearer token"
 
+    @patch("app.utils.url_validation.validate_outbound_url", return_value="ok")
+    @patch("app.services.workflow_engine.httpx.Client")
+    def test_malformed_headers_returns_error(self, mock_client_cls, _mock_validate):
+        # Smart quotes — looks like JSON to a human but fails json.loads.
+        # Previously the parse error was silently swallowed, which sent the
+        # request with no auth headers and produced a confusing 403 from the
+        # target server (commonly Vandalizer's own CSRF middleware when the
+        # missing header was x-api-key).
+        node = APICallNode({
+            "url": "https://api.example.com",
+            "method": "POST",
+            "headers": '{“x-api-key”: “secret”}',
+        })
+        result = node.process({"output": "prev"})
+        assert "Invalid Headers JSON" in result["output"]
+        mock_client_cls.assert_not_called()
+
+    @patch("app.utils.url_validation.validate_outbound_url", return_value="ok")
+    @patch("app.services.workflow_engine.httpx.Client")
+    def test_non_object_headers_returns_error(self, mock_client_cls, _mock_validate):
+        node = APICallNode({
+            "url": "https://api.example.com",
+            "method": "POST",
+            "headers": '"just-a-string"',
+        })
+        result = node.process({"output": "prev"})
+        assert "Invalid Headers JSON" in result["output"]
+        mock_client_cls.assert_not_called()
+
     @patch("app.utils.url_validation.validate_outbound_url")
     @patch("app.services.workflow_engine.httpx.Client")
     def test_non_json_response(self, mock_client_cls, mock_validate):

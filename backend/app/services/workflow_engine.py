@@ -773,9 +773,26 @@ class APICallNode(Node):
         headers: dict[str, str] = {}
         if headers_raw:
             try:
-                headers = json.loads(headers_raw)
-            except json.JSONDecodeError:
-                pass
+                parsed = json.loads(headers_raw)
+            except json.JSONDecodeError as e:
+                return {
+                    "output": (
+                        f"Invalid Headers JSON: {e}. "
+                        "Check for smart quotes or other invisible characters."
+                    ),
+                    "input": inputs.get("output"),
+                    "step_name": self.name,
+                }
+            if not isinstance(parsed, dict):
+                return {
+                    "output": (
+                        "Invalid Headers JSON: expected an object like "
+                        '{"x-api-key": "..."}'
+                    ),
+                    "input": inputs.get("output"),
+                    "step_name": self.name,
+                }
+            headers = {str(k): str(v) for k, v in parsed.items()}
 
         # Apply credential-based auth (overrides any conflicting header).
         if auth_strategy != "none":
