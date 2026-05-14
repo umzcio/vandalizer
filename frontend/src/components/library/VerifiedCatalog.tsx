@@ -7,6 +7,7 @@ import type { CatalogPreviewItem } from '../../api/library'
 import type { VerifiedCatalogItem, VerifiedCollection } from '../../types/library'
 import { listOrganizationsFlat } from '../../api/organizations'
 import type { Organization } from '../../api/organizations'
+import { useConfirm } from '../shared/useConfirm'
 
 type KindFilter = '' | 'workflow' | 'search_set' | 'knowledge_base'
 type QualityFilter = '' | 'excellent' | 'good' | 'fair'
@@ -250,6 +251,7 @@ function CollectionPicker({
 }
 
 export function VerifiedCatalog() {
+  const confirm = useConfirm()
   const [items, setItems] = useState<VerifiedCatalogItem[]>([])
   const [loading, setLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
@@ -299,7 +301,17 @@ export function VerifiedCatalog() {
   }, [refresh])
 
   const handleUnverify = async (item: VerifiedCatalogItem) => {
-    if (!confirm(`Remove verified status from "${item.display_name || item.name}"?`)) return
+    const ok = await confirm({
+      title: 'Remove verified status?',
+      message: (
+        <>
+          Remove verified status from <strong>{item.display_name || item.name}</strong>? It will no longer appear in the verified catalog.
+        </>
+      ),
+      confirmLabel: 'Remove',
+      destructive: true,
+    })
+    if (!ok) return
     await unverifyItem(item.kind, item.item_id)
     refresh()
   }

@@ -14,6 +14,7 @@ import {
   LineChart, Line,
 } from 'recharts'
 import { PageLayout } from '../components/layout/PageLayout'
+import { useConfirm } from '../components/shared/useConfirm'
 import { useAuth } from '../hooks/useAuth'
 import { useTeams } from '../hooks/useTeams'
 import { getThemeConfig, updateThemeConfig } from '../api/config'
@@ -1058,6 +1059,7 @@ function TeamDrillDown({ teamId, onBack }: { teamId: string; onBack: () => void 
 }
 
 function TeamsTab() {
+  const confirm = useConfirm()
   const [subTab, setSubTab] = useState<'manage' | 'stats' | 'isolated'>('manage')
 
   // ── Manage sub-tab state ──────────────────────────────────────────────────
@@ -1183,7 +1185,17 @@ function TeamsTab() {
   }
 
   const handleRemoveUser = async (teamUuid: string, userId: string, userName: string) => {
-    if (!window.confirm(`Remove ${userName} from this team?`)) return
+    const ok = await confirm({
+      title: 'Remove user from team?',
+      message: (
+        <>
+          Are you sure you want to remove <strong>{userName}</strong> from this team? They will lose access to the team's content.
+        </>
+      ),
+      confirmLabel: 'Remove',
+      destructive: true,
+    })
+    if (!ok) return
     await adminRemoveUserFromTeam(teamUuid, userId)
     const members = await getTeamMembers(teamUuid)
     setTeamMembers(prev => ({ ...prev, [teamUuid]: members }))
@@ -2278,6 +2290,7 @@ function QualityTab() {
 // ──────────────────────────────────────────
 
 function ConfigTab() {
+  const confirm = useConfirm()
   const [cfg, setCfg] = useState<SystemConfigData | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -2543,6 +2556,18 @@ function ConfigTab() {
   }
 
   const handleDeleteModel = async (index: number) => {
+    const model = cfg?.available_models?.[index]
+    const ok = await confirm({
+      title: 'Delete model?',
+      message: (
+        <>
+          Are you sure you want to delete the model <strong>{model?.name || 'this model'}</strong>? Workflows and chats configured to use it will fail until reconfigured.
+        </>
+      ),
+      confirmLabel: 'Delete',
+      destructive: true,
+    })
+    if (!ok) return
     try {
       const res = await deleteModel(index)
       if (cfg) {
@@ -2620,6 +2645,19 @@ function ConfigTab() {
   }
 
   const handleDeleteProvider = async (index: number) => {
+    const provider = cfg?.oauth_providers?.[index] as Record<string, unknown> | undefined
+    const name = (provider?.display_name as string) || (provider?.provider as string) || 'this provider'
+    const ok = await confirm({
+      title: 'Delete OAuth provider?',
+      message: (
+        <>
+          Are you sure you want to delete <strong>{name}</strong>? Users authenticating through this provider will no longer be able to sign in via it.
+        </>
+      ),
+      confirmLabel: 'Delete',
+      destructive: true,
+    })
+    if (!ok) return
     try {
       await deleteOAuthProvider(index)
       const c = await getSystemConfig()
@@ -3936,6 +3974,7 @@ function DemoResponseDetail({ responses }: { responses: Record<string, unknown> 
 }
 
 function DemoTab() {
+  const confirm = useConfirm()
   const [subTab, setSubTab] = useState<'applications' | 'surveys'>('applications')
   const [stats, setStats] = useState<DemoAdminStats | null>(null)
   const [apps, setApps] = useState<DemoApp[]>([])
@@ -4051,7 +4090,12 @@ function DemoTab() {
   }
 
   async function handleRestartTrial(uuid: string) {
-    if (!confirm('Restart this user\'s trial? This will give them a fresh 14-day trial.')) return
+    const ok = await confirm({
+      title: 'Restart trial?',
+      message: 'Restart this user\'s trial? They will get a fresh 14-day trial period starting now.',
+      confirmLabel: 'Restart trial',
+    })
+    if (!ok) return
     setActionLoading(`restart-${uuid}`)
     try {
       await restartDemoTrial(uuid)
@@ -4076,7 +4120,17 @@ function DemoTab() {
   }
 
   async function handleResendCredentials(uuid: string, email: string) {
-    if (!confirm(`Resend credentials to ${email}? This will reset their password.`)) return
+    const ok = await confirm({
+      title: 'Resend credentials?',
+      message: (
+        <>
+          Resend credentials to <strong>{email}</strong>? This will reset their password.
+        </>
+      ),
+      confirmLabel: 'Resend',
+      destructive: true,
+    })
+    if (!ok) return
     setActionLoading(`resend-${uuid}`)
     try {
       await adminResendCredentials(uuid)
@@ -5693,6 +5747,7 @@ function ImportDialog({ onClose, onImported }: { onClose: () => void; onImported
 }
 
 function OrganizationsTab() {
+  const confirm = useConfirm()
   const [tree, setTree] = useState<Organization[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -5728,7 +5783,17 @@ function OrganizationsTab() {
     catch (e) { setError(e instanceof Error ? e.message : 'Failed to update') }
   }
   const handleDelete = async (org: Organization) => {
-    if (!confirm(`Delete "${org.name}"? Children will be re-parented to its parent.`)) return
+    const ok = await confirm({
+      title: 'Delete organization?',
+      message: (
+        <>
+          Are you sure you want to delete <strong>{org.name}</strong>? Any child organizations will be re-parented to its parent.
+        </>
+      ),
+      confirmLabel: 'Delete',
+      destructive: true,
+    })
+    if (!ok) return
     setError(null)
     if (selectedOrg?.uuid === org.uuid) setSelectedOrg(null)
     try { await orgApi.deleteOrganization(org.uuid); loadTree() }

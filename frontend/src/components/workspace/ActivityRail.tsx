@@ -19,6 +19,7 @@ import { useActivities } from '../../hooks/useActivities'
 import { deleteActivity } from '../../api/activity'
 import { useWorkspace } from '../../contexts/WorkspaceContext'
 import { useToast } from '../../contexts/ToastContext'
+import { useConfirm } from '../shared/useConfirm'
 import { useCertificationPanel } from '../../contexts/CertificationPanelContext'
 import { LEVEL_CONFIG } from '../certification/constants'
 import { cn } from '../../lib/cn'
@@ -81,6 +82,7 @@ export function ActivityRail() {
   const { activities, refresh, freshTitleIds, markTitleShimmered, staleThresholdMinutes } = useActivities(activitySignal)
   const { toast } = useToast()
   const { togglePanel, progress } = useCertificationPanel()
+  const confirm = useConfirm()
 
   const certLevel = progress?.level || 'novice'
   const certConfig = LEVEL_CONFIG[certLevel] || LEVEL_CONFIG.novice
@@ -91,6 +93,21 @@ export function ActivityRail() {
   const handleDelete = useCallback(
     async (e: React.MouseEvent, id: string) => {
       e.stopPropagation()
+      const activity = activities.find(a => a.id === id)
+      const label = activity?.type === 'conversation'
+        ? 'this conversation'
+        : activity?.type === 'workflow_run'
+          ? 'this workflow run'
+          : activity?.type === 'search_set_run'
+            ? 'this extraction run'
+            : 'this activity'
+      const ok = await confirm({
+        title: 'Delete from activity?',
+        message: `Are you sure you want to delete ${label} from your activity history? This cannot be undone.`,
+        confirmLabel: 'Delete',
+        destructive: true,
+      })
+      if (!ok) return
       try {
         await deleteActivity(id)
       } catch (err) {
@@ -98,7 +115,7 @@ export function ActivityRail() {
       }
       refresh()
     },
-    [refresh, toast],
+    [refresh, toast, activities, confirm],
   )
 
   const handleClick = useCallback(

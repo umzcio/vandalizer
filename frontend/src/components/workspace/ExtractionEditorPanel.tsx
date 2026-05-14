@@ -5,6 +5,7 @@ import { X, Pencil, Loader2, Copy, Trash2, GripVertical, Plus, ChevronDown, Chev
 import { useWorkspace } from '../../contexts/WorkspaceContext'
 import { useToast } from '../../contexts/ToastContext'
 import { useAuth } from '../../hooks/useAuth'
+import { useConfirm } from '../shared/useConfirm'
 import { useSearchSetItems } from '../../hooks/useExtractions'
 import {
   getSearchSet,
@@ -75,6 +76,7 @@ export function ExtractionEditorPanel() {
   const { openExtractionId, openExtraction, closeExtraction, selectedDocUuids, selectedDocNames, setHighlightTerms, bumpActivitySignal, consumeExtractionResults } = useWorkspace()
   const { toast } = useToast()
   const { user } = useAuth()
+  const confirm = useConfirm()
   const [searchSet, setSearchSet] = useState<SearchSet | null>(null)
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState<Tab>('design')
@@ -299,6 +301,17 @@ export function ExtractionEditorPanel() {
 
   const handleDelete = async () => {
     if (!openExtractionId) return
+    const ok = await confirm({
+      title: 'Delete extraction?',
+      message: (
+        <>
+          Are you sure you want to delete <strong>{searchSet?.title || 'this extraction'}</strong>? This action cannot be undone.
+        </>
+      ),
+      confirmLabel: 'Delete',
+      destructive: true,
+    })
+    if (!ok) return
     await deleteSearchSet(openExtractionId)
     closeExtraction()
   }

@@ -17,6 +17,7 @@ import { KBListView } from '../knowledge/KBListView'
 import { KnowledgeExplainer } from './KnowledgeExplainer'
 import { ShareWithTeamDialog } from '../library/ShareWithTeamDialog'
 import { useToast } from '../../contexts/ToastContext'
+import { useConfirm } from '../shared/useConfirm'
 
 type TabKey = 'mine' | 'team' | 'explore'
 const TABS: { key: TabKey; label: string }[] = [
@@ -44,6 +45,7 @@ export function KnowledgePanel() {
   const { user } = useAuth()
   const { toast } = useToast()
   const { create, remove, refresh } = useKnowledgeBases()
+  const confirm = useConfirm()
   const [activeTab, setActiveTab] = useState<TabKey>('mine')
   const [search, setSearch] = useState('')
   const [creating, setCreating] = useState(false)
@@ -161,6 +163,18 @@ export function KnowledgePanel() {
   }, [selectedKB?.uuid, selectedKB?.status, refresh])
 
   const handleDelete = async (uuid: string) => {
+    const kb = scopedMine.knowledgeBases.find((k: KnowledgeBase) => k.uuid === uuid)
+    const ok = await confirm({
+      title: 'Delete knowledge base?',
+      message: (
+        <>
+          Are you sure you want to delete <strong>{kb?.title || 'this knowledge base'}</strong>? Indexed content will be removed and chats referencing it may lose context. This cannot be undone.
+        </>
+      ),
+      confirmLabel: 'Delete',
+      destructive: true,
+    })
+    if (!ok) return
     try {
       await remove(uuid)
       if (selectedKB?.uuid === uuid) setSelectedKB(null)

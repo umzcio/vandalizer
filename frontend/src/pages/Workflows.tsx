@@ -6,6 +6,7 @@ import { useWorkflows } from '../hooks/useWorkflows'
 import { useToast } from '../contexts/ToastContext'
 import { useAuth } from '../hooks/useAuth'
 import { AuthorChip } from '../components/shared/AuthorChip'
+import { useConfirm } from '../components/shared/useConfirm'
 
 type SortKey = 'name' | 'runs' | 'steps'
 
@@ -14,6 +15,7 @@ export default function Workflows() {
   const { workflows, loading, create, remove, duplicate, importFromFile } = useWorkflows()
   const { toast } = useToast()
   const { user } = useAuth()
+  const confirm = useConfirm()
   const [newName, setNewName] = useState('')
   const [creating, setCreating] = useState(false)
   const [importing, setImporting] = useState(false)
@@ -188,7 +190,20 @@ export default function Workflows() {
                     <Copy size={16} />
                   </button>
                   <button
-                    onClick={e => { e.stopPropagation(); remove(wf.id) }}
+                    onClick={async e => {
+                      e.stopPropagation()
+                      const ok = await confirm({
+                        title: 'Delete workflow?',
+                        message: (
+                          <>
+                            Are you sure you want to delete <strong>{wf.name}</strong>? This will permanently remove the workflow and its execution history.
+                          </>
+                        ),
+                        confirmLabel: 'Delete',
+                        destructive: true,
+                      })
+                      if (ok) await remove(wf.id)
+                    }}
                     className="p-2 text-gray-400 hover:text-red-500 rounded"
                     title="Delete"
                   >

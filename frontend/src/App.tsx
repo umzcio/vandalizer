@@ -6,6 +6,7 @@ import { TeamProvider } from './contexts/TeamContext'
 import { ToastProvider } from './contexts/ToastContext'
 import { CertificationPanelProvider } from './contexts/CertificationPanelContext'
 import { CertificationPanel } from './components/certification/CertificationPanel'
+import { ConfirmProvider } from './components/shared/useConfirm'
 import { queryClient } from './lib/queryClient'
 import { Sentry } from './lib/sentry'
 import { router } from './router'
@@ -99,10 +100,12 @@ export default function App() {
         <AuthProvider>
           <TeamProvider>
             <ToastProvider>
-              <CertificationPanelProvider>
-                <RouterProvider router={router} />
-                <CertificationPanel />
-              </CertificationPanelProvider>
+              <ConfirmProvider>
+                <CertificationPanelProvider>
+                  <RouterProvider router={router} />
+                  <CertificationPanel />
+                </CertificationPanelProvider>
+              </ConfirmProvider>
             </ToastProvider>
           </TeamProvider>
         </AuthProvider>
