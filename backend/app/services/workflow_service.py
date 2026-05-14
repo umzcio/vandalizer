@@ -496,6 +496,11 @@ async def get_workflow_status(session_id: str, user: User | None = None) -> dict
         result = await WorkflowResult.find_one(WorkflowResult.session_id == session_id)
     if not result:
         return None
+    workflow_name: str | None = None
+    if result.workflow:
+        wf = await Workflow.get(result.workflow)
+        if wf:
+            workflow_name = wf.name
     return {
         "status": result.status,
         "num_steps_completed": result.num_steps_completed,
@@ -507,6 +512,8 @@ async def get_workflow_status(session_id: str, user: User | None = None) -> dict
         "steps_output": result.steps_output,
         "output_step_names": result.output_step_names,
         "approval_request_id": result.approval_request_id,
+        "workflow_name": workflow_name,
+        "document_title": result.document_title,
     }
 
 

@@ -449,6 +449,24 @@ async def download_results(
     if not status:
         raise HTTPException(status_code=404, detail="Workflow result not found")
 
+    # Build a base filename unique per session. Browsers cap auto-suffixing of
+    # duplicate downloads at ~5; past that, the same Content-Disposition name
+    # causes older files to be overwritten. Embedding the session id in the
+    # name guarantees uniqueness across manual runs.
+    workflow_name = status.get("workflow_name")
+    document_title = status.get("document_title")
+    name_parts: list[str] = []
+    if workflow_name:
+        name_parts.append(workflow_name)
+    else:
+        name_parts.append("results")
+    if document_title:
+        doc_stem = document_title.rsplit(".", 1)[0] if "." in document_title else document_title
+        name_parts.append(doc_stem)
+    name_parts.append(session_id[:8])
+    raw_base = "-".join(name_parts)
+    base_filename = "".join(c if c.isalnum() or c in " _-." else "_" for c in raw_base).strip() or f"results-{session_id[:8]}"
+
     final_output = status.get("final_output", {})
     steps_output = status.get("steps_output", {}) or {}
     output_step_names = [n for n in (status.get("output_step_names") or []) if n in steps_output]
@@ -472,7 +490,7 @@ async def download_results(
         return StreamingResponse(
             zip_buf,
             media_type="application/zip",
-            headers={"Content-Disposition": 'attachment; filename="deliverables.zip"'},
+            headers={"Content-Disposition": f'attachment; filename="{base_filename}.zip"'},
         )
 
     if len(output_step_names) == 1:
@@ -529,7 +547,7 @@ async def download_results(
         return StreamingResponse(
             io.BytesIO(buf.getvalue().encode()),
             media_type="text/csv",
-            headers={"Content-Disposition": 'attachment; filename="results.csv"'},
+            headers={"Content-Disposition": f'attachment; filename="{base_filename}.csv"'},
         )
 
     if format == "text":
@@ -547,7 +565,7 @@ async def download_results(
         return StreamingResponse(
             io.BytesIO(text.encode()),
             media_type="text/plain",
-            headers={"Content-Disposition": 'attachment; filename="results.txt"'},
+            headers={"Content-Disposition": f'attachment; filename="{base_filename}.txt"'},
         )
 
     if format == "pdf":
@@ -557,7 +575,7 @@ async def download_results(
         return StreamingResponse(
             io.BytesIO(pdf_bytes),
             media_type="application/pdf",
-            headers={"Content-Disposition": 'attachment; filename="results.pdf"'},
+            headers={"Content-Disposition": f'attachment; filename="{base_filename}.pdf"'},
         )
 
     if format == "docx":
@@ -565,7 +583,7 @@ async def download_results(
         return StreamingResponse(
             io.BytesIO(docx_bytes),
             media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            headers={"Content-Disposition": 'attachment; filename="results.docx"'},
+            headers={"Content-Disposition": f'attachment; filename="{base_filename}.docx"'},
         )
 
     # Default: JSON
@@ -573,7 +591,7 @@ async def download_results(
     return StreamingResponse(
         io.BytesIO(json_bytes),
         media_type="application/json",
-        headers={"Content-Disposition": 'attachment; filename="results.json"'},
+        headers={"Content-Disposition": f'attachment; filename="{base_filename}.json"'},
     )
 
 
