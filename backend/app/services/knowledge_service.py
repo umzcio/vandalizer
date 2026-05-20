@@ -958,6 +958,12 @@ async def _ingest_url_source(
         source.error_message = str(e)[:2000]
         await source.save()
         return None
+    except (ValueError, httpx.RequestError) as e:
+        logger.warning("URL source %s unreachable: %s", source.uuid, e)
+        source.status = "error"
+        source.error_message = str(e)[:2000]
+        await source.save()
+        return None
     except Exception as e:
         logger.error(f"Error ingesting URL source {source.uuid}: {e}")
         source.status = "error"
