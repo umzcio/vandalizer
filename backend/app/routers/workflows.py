@@ -313,7 +313,8 @@ async def create_workflow(req: CreateWorkflowRequest, user: User = Depends(get_c
     created_by = await resolve_author(wf.created_by_user_id or wf.user_id)
     return WorkflowResponse(
         id=str(wf.id), name=wf.name, description=wf.description,
-        user_id=wf.user_id, num_executions=wf.num_executions,
+        user_id=wf.user_id, team_id=wf.team_id, num_executions=wf.num_executions,
+        can_manage=True,  # creator can always manage
         created_by=created_by,
     )
 
@@ -330,10 +331,13 @@ async def list_workflows(
     author_map = await resolve_authors(
         (wf.created_by_user_id or wf.user_id) for wf in workflows
     )
+    # One team-access lookup powers can_manage for every workflow in the page.
+    team_access = await access_control.get_team_access_context(user)
     return [
         WorkflowResponse(
             id=str(wf.id), name=wf.name, description=wf.description,
-            user_id=wf.user_id, num_executions=wf.num_executions,
+            user_id=wf.user_id, team_id=wf.team_id, num_executions=wf.num_executions,
+            can_manage=access_control.can_manage_workflow(wf, user, team_access),
             created_by=author_map.get(wf.created_by_user_id or wf.user_id),
         )
         for wf in workflows
@@ -757,9 +761,10 @@ async def update_workflow(workflow_id: str, req: UpdateWorkflowRequest, user: Us
     created_by = await resolve_author(wf.created_by_user_id or wf.user_id)
     return WorkflowResponse(
         id=str(wf.id), name=wf.name, description=wf.description,
-        user_id=wf.user_id, num_executions=wf.num_executions,
+        user_id=wf.user_id, team_id=wf.team_id, num_executions=wf.num_executions,
         input_config=wf.input_config,
         output_config=wf.output_config,
+        can_manage=True,  # update already enforced manage authorization
         created_by=created_by,
     )
 
@@ -779,6 +784,35 @@ async def duplicate_workflow(workflow_id: str, user: User = Depends(get_current_
     if not wf:
         raise HTTPException(status_code=404, detail="Workflow not found")
     return await _workflow_response_from_dict(wf)
+
+
+@router.delete("/{workflow_id}/team", response_model=WorkflowResponse)
+async def remove_workflow_from_team(workflow_id: str, user: User = Depends(get_current_user)):
+    """Remove a workflow from its team library without deleting it.
+
+    The workflow stays owned by its creator (``user_id``) and disappears from
+    every other team member's view. Allowed for the creator or a team
+    owner/admin (same set as ``can_manage_workflow``).
+    """
+    try:
+        wf = await svc.remove_workflow_from_team(workflow_id, user=user)
+    except svc.WorkflowNotInTeam:
+        raise HTTPException(status_code=400, detail="Workflow is not in a team")
+    if not wf:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+    created_by = await resolve_author(wf.created_by_user_id or wf.user_id)
+    return WorkflowResponse(
+        id=str(wf.id),
+        name=wf.name,
+        description=wf.description,
+        user_id=wf.user_id,
+        team_id=wf.team_id,
+        num_executions=wf.num_executions,
+        input_config=wf.input_config,
+        output_config=wf.output_config,
+        can_manage=True,  # caller just managed it; trivially true
+        created_by=created_by,
+    )
 
 
 # ---------------------------------------------------------------------------

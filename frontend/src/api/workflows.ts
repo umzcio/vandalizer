@@ -39,6 +39,12 @@ export function duplicateWorkflow(id: string) {
   return apiFetch<Workflow>(`/api/workflows/${id}/duplicate`, { method: 'POST' })
 }
 
+// Unset team_id on the workflow. The workflow stays, but disappears from
+// the team library. Creator keeps personal access.
+export function removeWorkflowFromTeam(id: string) {
+  return apiFetch<Workflow>(`/api/workflows/${id}/team`, { method: 'DELETE' })
+}
+
 // Steps
 
 export function addStep(workflowId: string, data: { name: string; data?: Record<string, unknown>; is_output?: boolean }) {

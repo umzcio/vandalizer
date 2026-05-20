@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
-import { Plus, Copy, Trash2, Search, ArrowUpDown } from 'lucide-react'
+import { Plus, Copy, Trash2, Search, ArrowUpDown, UserMinus } from 'lucide-react'
 import { PageLayout } from '../components/layout/PageLayout'
 import { useWorkflows } from '../hooks/useWorkflows'
 import { useToast } from '../contexts/ToastContext'
@@ -12,7 +12,7 @@ type SortKey = 'name' | 'runs' | 'steps'
 
 export default function Workflows() {
   const navigate = useNavigate()
-  const { workflows, loading, create, remove, duplicate, importFromFile } = useWorkflows()
+  const { workflows, loading, create, remove, duplicate, removeFromTeam, importFromFile } = useWorkflows()
   const { toast } = useToast()
   const { user } = useAuth()
   const confirm = useConfirm()
@@ -189,6 +189,39 @@ export default function Workflows() {
                   >
                     <Copy size={16} />
                   </button>
+                  {wf.team_id && wf.can_manage !== false && (
+                    <button
+                      onClick={async e => {
+                        e.stopPropagation()
+                        const isCreator = wf.created_by?.user_id === user?.user_id
+                        const ok = await confirm({
+                          title: 'Remove from team?',
+                          message: (
+                            <>
+                              Remove <strong>{wf.name}</strong> from the team library?
+                              {' '}The workflow will not be deleted —{' '}
+                              {isCreator
+                                ? 'you will keep personal access, but other team members will lose access.'
+                                : 'only the workflow’s creator will keep access. You and other team members will no longer see it.'}
+                            </>
+                          ),
+                          confirmLabel: 'Remove from team',
+                          destructive: true,
+                        })
+                        if (!ok) return
+                        try {
+                          await removeFromTeam(wf.id)
+                          toast(`Removed "${wf.name}" from team`, 'success')
+                        } catch (err) {
+                          toast(err instanceof Error ? err.message : 'Failed to remove from team', 'error')
+                        }
+                      }}
+                      className="p-2 text-gray-400 hover:text-amber-600 rounded"
+                      title="Remove from team"
+                    >
+                      <UserMinus size={16} />
+                    </button>
+                  )}
                   <button
                     onClick={async e => {
                       e.stopPropagation()

@@ -143,6 +143,7 @@ async def get_workflow(workflow_id: str, user: User | None = None) -> dict | Non
         "name": wf.name,
         "description": wf.description,
         "user_id": wf.user_id,
+        "team_id": wf.team_id,
         "num_executions": wf.num_executions,
         "steps": steps,
         "input_config": _sanitize_for_json(wf.input_config),
@@ -173,6 +174,33 @@ async def update_workflow(
         wf.input_config = input_config
     if output_config is not None:
         wf.output_config = output_config
+    wf.updated_at = datetime.datetime.now(tz=datetime.timezone.utc)
+    await wf.save()
+    return wf
+
+
+class WorkflowNotInTeam(Exception):
+    """Raised when remove_workflow_from_team is called on a workflow with no team."""
+
+
+async def remove_workflow_from_team(workflow_id: str, user: User) -> Workflow | None:
+    """Unset ``team_id`` on a workflow so it no longer appears in the team library.
+
+    The workflow itself is preserved — the creator (``user_id``) keeps access via
+    their personal scope. Other team members lose access immediately because
+    visibility joins on ``team_id``.
+
+    Authorization mirrors ``can_manage_workflow``: only the creator or a team
+    owner/admin can remove a workflow from its team. Returns the updated workflow,
+    or ``None`` if the workflow doesn't exist or the caller isn't authorized.
+    Raises ``WorkflowNotInTeam`` if the workflow has no team to remove from.
+    """
+    wf = await get_authorized_workflow(workflow_id, user, manage=True)
+    if not wf:
+        return None
+    if not wf.team_id:
+        raise WorkflowNotInTeam("Workflow is not in a team")
+    wf.team_id = None
     wf.updated_at = datetime.datetime.now(tz=datetime.timezone.utc)
     await wf.save()
     return wf

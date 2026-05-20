@@ -71,6 +71,9 @@ export interface Workflow {
   name: string;
   description: string | null;
   user_id: string;
+  // Set when the workflow is shared with a team; null for personal workflows.
+  // Used to decide whether the "Remove from team" action is offered.
+  team_id?: string | null;
   num_executions: number;
   steps: WorkflowStep[];
   input_config?: { trigger_type?: string };

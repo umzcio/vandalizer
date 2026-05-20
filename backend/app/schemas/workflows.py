@@ -27,10 +27,15 @@ class WorkflowResponse(BaseModel):
     name: str
     description: Optional[str] = None
     user_id: str
+    # Set when the workflow is shared with a team; None for personal workflows
+    # or workflows that have been removed from their team library.
+    team_id: Optional[str] = None
     num_executions: int = 0
     steps: list[dict] = []  # Dereferenced step objects
     input_config: dict = {}
     output_config: dict = {}
+    # True when the caller can edit / delete / remove-from-team this workflow.
+    # Mirrors can_manage_workflow: creator OR team owner/admin.
     can_manage: bool = True
     created_by: Optional[AuthorRef] = None
 
