@@ -17,6 +17,8 @@ interface KBListViewProps {
   onRemoveRef?: (refUuid: string) => void
   onClone?: (uuid: string) => void
   onExplore?: (kb: KnowledgeBase) => void
+  onShare?: (kb: KnowledgeBase) => void
+  onSubmitVerify?: (kb: KnowledgeBase) => void
   emptyMessage?: string
   emptyComponent?: ReactNode
 }
@@ -24,6 +26,7 @@ interface KBListViewProps {
 export function KBListView({
   scope, search, allOrgs,
   onSelect, onChat, onEdit, onDelete, onAdopt, onRemoveRef, onClone, onExplore,
+  onShare, onSubmitVerify,
   emptyMessage = 'No knowledge bases found.',
   emptyComponent,
 }: KBListViewProps) {
@@ -64,6 +67,8 @@ export function KBListView({
           onRemoveRef={onRemoveRef}
           onClone={onClone}
           onExplore={onExplore}
+          onShare={onShare}
+          onSubmitVerify={onSubmitVerify}
         />
       ))}
     </div>

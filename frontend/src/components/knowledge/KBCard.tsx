@@ -1,4 +1,19 @@
-import { ShieldCheck, Tag, Pencil, Trash2, Bookmark, BookmarkCheck, Copy, MessageSquare } from 'lucide-react'
+import { useState, useRef, useEffect, useCallback } from 'react'
+import { createPortal } from 'react-dom'
+import {
+  ShieldCheck,
+  Tag,
+  Pencil,
+  Trash2,
+  BookmarkCheck,
+  Copy,
+  MessageSquare,
+  MoreHorizontal,
+  Share2,
+  Send,
+  Bookmark,
+  Users,
+} from 'lucide-react'
 import type { KnowledgeBase } from '../../types/knowledge'
 import type { Organization } from '../../api/organizations'
 
@@ -20,17 +35,63 @@ interface KBCardProps {
   onRemoveRef?: (refUuid: string) => void
   onClone?: (uuid: string) => void
   onExplore?: (kb: KnowledgeBase) => void
+  onShare?: (kb: KnowledgeBase) => void
+  onSubmitVerify?: (kb: KnowledgeBase) => void
 }
 
 export function KBCard({
   kb, allOrgs, onSelect, onChat, onEdit, onDelete, onAdopt, onRemoveRef, onClone, onExplore,
+  onShare, onSubmitVerify,
 }: KBCardProps) {
   const badge = STATUS_BADGE[kb.status] || STATUS_BADGE.empty
   const isReady = kb.status === 'ready'
   const isReference = kb.is_reference
 
+  const [menuOpen, setMenuOpen] = useState(false)
+  const menuRef = useRef<HTMLDivElement>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const [menuPos, setMenuPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 })
+  const [flipUp, setFlipUp] = useState(false)
+
+  const updateMenuPos = useCallback(() => {
+    const btn = triggerRef.current
+    if (!btn) return
+    const rect = btn.getBoundingClientRect()
+    const spaceBelow = window.innerHeight - rect.bottom
+    const shouldFlip = spaceBelow < 280
+    setFlipUp(shouldFlip)
+    setMenuPos({
+      top: shouldFlip ? rect.top : rect.bottom + 4,
+      left: rect.right - 220,
+    })
+  }, [])
+
+  useEffect(() => {
+    if (!menuOpen) return
+    const handler = (e: MouseEvent) => {
+      const target = e.target as Node
+      if (
+        menuRef.current && !menuRef.current.contains(target) &&
+        triggerRef.current && !triggerRef.current.contains(target)
+      ) {
+        setMenuOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [menuOpen])
+
+  const hasMenu =
+    (!!onEdit && !isReference) ||
+    (!!onShare && !isReference) ||
+    (!!onSubmitVerify && !isReference && isReady && !kb.verified) ||
+    (!!onAdopt && !isReference) ||
+    !!onClone ||
+    (!!onRemoveRef && isReference && !!kb.reference_uuid) ||
+    (!!onDelete && !isReference)
+
   return (
-    <button
+    <div
       onClick={() => onExplore ? onExplore(kb) : (isReady ? onChat(isReference ? kb.source_kb_uuid! : kb.uuid, kb.title) : onSelect(kb.uuid))}
       style={{
         display: 'block', width: '100%', textAlign: 'left',
@@ -38,6 +99,7 @@ export function KBCard({
         border: isReference ? '1px solid rgba(37, 99, 235, 0.3)' : '1px solid #3a3a3a',
         borderRadius: 8, cursor: 'pointer', fontFamily: 'inherit',
         transition: 'background-color 0.15s',
+        position: 'relative',
       }}
       onMouseEnter={e => (e.currentTarget.style.backgroundColor = '#333')}
       onMouseLeave={e => (e.currentTarget.style.backgroundColor = '#2a2a2a')}
@@ -122,76 +184,167 @@ export function KBCard({
             Chat
           </button>
         )}
-        {onEdit && !isReference && (
+        <div style={{ flex: 1 }} />
+        {hasMenu && (
           <button
-            onClick={(e) => { e.stopPropagation(); onEdit(kb.uuid) }}
+            ref={triggerRef}
+            onClick={(e) => {
+              e.stopPropagation()
+              if (!menuOpen) updateMenuPos()
+              setMenuOpen(!menuOpen)
+            }}
+            title="More actions"
             style={{
-              display: 'flex', alignItems: 'center', gap: 4,
-              padding: '4px 10px', fontSize: 11, fontWeight: 600, fontFamily: 'inherit',
-              color: '#ccc', backgroundColor: 'transparent',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              width: 28, height: 24, fontFamily: 'inherit',
+              color: '#aaa', backgroundColor: 'transparent',
               border: '1px solid #3a3a3a', borderRadius: 4, cursor: 'pointer',
             }}
           >
-            <Pencil size={11} />
-            Edit
-          </button>
-        )}
-        {onAdopt && !isReference && (
-          <button
-            onClick={(e) => { e.stopPropagation(); onAdopt(kb.uuid) }}
-            style={{
-              display: 'flex', alignItems: 'center', gap: 4,
-              padding: '4px 10px', fontSize: 11, fontWeight: 600, fontFamily: 'inherit',
-              color: '#2563eb', backgroundColor: 'rgba(37, 99, 235, 0.1)',
-              border: '1px solid rgba(37, 99, 235, 0.2)', borderRadius: 4, cursor: 'pointer',
-            }}
-          >
-            <Bookmark size={11} />
-            Add to My KBs
-          </button>
-        )}
-        {onClone && (
-          <button
-            onClick={(e) => { e.stopPropagation(); onClone(kb.uuid) }}
-            style={{
-              display: 'flex', alignItems: 'center', gap: 4,
-              padding: '4px 10px', fontSize: 11, fontWeight: 600, fontFamily: 'inherit',
-              color: '#ccc', backgroundColor: 'transparent',
-              border: '1px solid #3a3a3a', borderRadius: 4, cursor: 'pointer',
-            }}
-          >
-            <Copy size={11} />
-            Clone
-          </button>
-        )}
-        {isReference && onRemoveRef && kb.reference_uuid && (
-          <button
-            onClick={(e) => { e.stopPropagation(); onRemoveRef(kb.reference_uuid!) }}
-            style={{
-              display: 'flex', alignItems: 'center', gap: 4,
-              padding: '4px 8px', fontSize: 11, fontFamily: 'inherit',
-              color: '#888', backgroundColor: 'transparent',
-              border: '1px solid #3a3a3a', borderRadius: 4, cursor: 'pointer',
-            }}
-          >
-            <Trash2 size={11} />
-            Remove
-          </button>
-        )}
-        {onDelete && !isReference && (
-          <button
-            onClick={(e) => { e.stopPropagation(); onDelete(kb.uuid) }}
-            style={{
-              display: 'flex', alignItems: 'center', gap: 4,
-              padding: '4px 8px', fontSize: 11, fontFamily: 'inherit',
-              color: '#888', backgroundColor: 'transparent',
-              border: '1px solid #3a3a3a', borderRadius: 4, cursor: 'pointer',
-            }}
-          >
-            <Trash2 size={11} />
+            <MoreHorizontal size={14} />
           </button>
         )}
       </div>
+
+      {menuOpen && createPortal(
+        <div
+          ref={menuRef}
+          onClick={(e) => e.stopPropagation()}
+          style={{
+            position: 'fixed',
+            left: Math.max(8, menuPos.left),
+            ...(flipUp ? { bottom: window.innerHeight - menuPos.top + 4 } : { top: menuPos.top }),
+            zIndex: 9999,
+            minWidth: 220,
+            borderRadius: 8,
+            border: '1px solid #3a3a3a',
+            background: '#1e1e1e',
+            boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
+            padding: '6px 0',
+          }}
+        >
+          {onEdit && !isReference && (
+            <MenuItem
+              icon={<Pencil size={14} />}
+              label="Edit"
+              onClick={() => {
+                onEdit(kb.uuid)
+                setMenuOpen(false)
+              }}
+            />
+          )}
+          {onShare && !isReference && (
+            <MenuItem
+              icon={kb.shared_with_team ? <Users size={14} /> : <Share2 size={14} />}
+              label={kb.shared_with_team ? 'Unshare from team' : 'Share with team'}
+              onClick={() => {
+                onShare(kb)
+                setMenuOpen(false)
+              }}
+            />
+          )}
+          {onSubmitVerify && !isReference && isReady && !kb.verified && (
+            <MenuItem
+              icon={<Send size={14} />}
+              label="Submit for Verification"
+              onClick={() => {
+                onSubmitVerify(kb)
+                setMenuOpen(false)
+              }}
+            />
+          )}
+          {onAdopt && !isReference && (
+            <MenuItem
+              icon={<Bookmark size={14} />}
+              label="Add to My KBs"
+              onClick={() => {
+                onAdopt(kb.uuid)
+                setMenuOpen(false)
+              }}
+            />
+          )}
+          {onClone && (
+            <MenuItem
+              icon={<Copy size={14} />}
+              label={onAdopt ? 'Clone' : 'Add to My KBs'}
+              onClick={() => {
+                onClone(kb.uuid)
+                setMenuOpen(false)
+              }}
+            />
+          )}
+          {onRemoveRef && isReference && kb.reference_uuid && (
+            <MenuItem
+              icon={<Trash2 size={14} />}
+              label="Remove from My KBs"
+              onClick={() => {
+                onRemoveRef(kb.reference_uuid!)
+                setMenuOpen(false)
+              }}
+            />
+          )}
+          {onDelete && !isReference && (
+            <>
+              <div style={{ borderTop: '1px solid #3a3a3a', margin: '4px 0' }} />
+              <MenuItem
+                icon={<Trash2 size={14} />}
+                label="Delete"
+                danger
+                onClick={() => {
+                  onDelete(kb.uuid)
+                  setMenuOpen(false)
+                }}
+              />
+            </>
+          )}
+        </div>,
+        document.body,
+      )}
+    </div>
+  )
+}
+
+function MenuItem({
+  icon,
+  label,
+  danger,
+  onClick,
+}: {
+  icon: React.ReactNode
+  label: string
+  danger?: boolean
+  onClick: () => void
+}) {
+  return (
+    <button
+      onClick={(e) => {
+        e.stopPropagation()
+        onClick()
+      }}
+      style={{
+        display: 'flex',
+        width: '100%',
+        alignItems: 'center',
+        gap: 10,
+        padding: '8px 14px',
+        background: 'none',
+        border: 'none',
+        cursor: 'pointer',
+        fontSize: 13,
+        fontFamily: 'inherit',
+        color: danger ? '#ef4444' : '#e5e5e5',
+        textAlign: 'left',
+        transition: 'background 0.1s',
+      }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.06)'
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.backgroundColor = 'transparent'
+      }}
+    >
+      <span style={{ width: 18, display: 'flex', justifyContent: 'center', flexShrink: 0 }}>{icon}</span>
+      {label}
     </button>
   )
 }

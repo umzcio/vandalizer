@@ -244,19 +244,18 @@ export function KnowledgePanel() {
     activateKB(selectedKB.uuid, selectedKB.title)
   }
 
-  const [shareKBDialogOpen, setShareKBDialogOpen] = useState(false)
+  const [shareDialogKB, setShareDialogKB] = useState<KnowledgeBase | null>(null)
 
-  const handleToggleShare = async () => {
-    if (!selectedKB) return
+  const handleToggleShare = async (kb: KnowledgeBase) => {
     // Sharing for the first time → prompt for a note.
-    if (!selectedKB.shared_with_team) {
-      setShareKBDialogOpen(true)
+    if (!kb.shared_with_team) {
+      setShareDialogKB(kb)
       return
     }
     try {
-      const result = await api.shareKnowledgeBase(selectedKB.uuid)
+      const result = await api.shareKnowledgeBase(kb.uuid)
       toast(result.shared_with_team ? 'Shared with team' : 'Unshared from team', 'success')
-      loadDetail(selectedKB.uuid)
+      if (selectedKB?.uuid === kb.uuid) loadDetail(kb.uuid)
       refresh()
     } catch (err) {
       console.error('Failed to toggle sharing:', err)
@@ -265,17 +264,18 @@ export function KnowledgePanel() {
   }
 
   const confirmShareKB = async (comment: string) => {
-    if (!selectedKB) return
+    if (!shareDialogKB) return
+    const kbUuid = shareDialogKB.uuid
     try {
-      await api.shareKnowledgeBase(selectedKB.uuid, comment || undefined)
+      await api.shareKnowledgeBase(kbUuid, comment || undefined)
       toast('Shared with team', 'success')
-      loadDetail(selectedKB.uuid)
+      if (selectedKB?.uuid === kbUuid) loadDetail(kbUuid)
       refresh()
     } catch (err) {
       console.error('Failed to share KB:', err)
       toast('Failed to share knowledge base', 'error')
     } finally {
-      setShareKBDialogOpen(false)
+      setShareDialogKB(null)
     }
   }
 
@@ -347,29 +347,38 @@ export function KnowledgePanel() {
   }
 
   // Verification modal state
-  const [showVerifyModal, setShowVerifyModal] = useState(false)
+  const [verifyKB, setVerifyKB] = useState<KnowledgeBase | null>(null)
   const [verifySummary, setVerifySummary] = useState('')
   const [verifyDescription, setVerifyDescription] = useState('')
   const [verifyCategory, setVerifyCategory] = useState('')
   const [submittingVerify, setSubmittingVerify] = useState(false)
   const [verificationSubmitted, setVerificationSubmitted] = useState(false)
 
+  const openVerifyModal = (kb: KnowledgeBase) => {
+    setVerifySummary('')
+    setVerifyDescription('')
+    setVerifyCategory('')
+    setVerifyKB(kb)
+  }
+
   const handleSubmitVerification = async () => {
-    if (!selectedKB) return
+    if (!verifyKB) return
+    const kbUuid = verifyKB.uuid
     setSubmittingVerify(true)
     try {
-      await api.submitKBForVerification(selectedKB.uuid, {
+      await api.submitKBForVerification(kbUuid, {
         summary: verifySummary || undefined,
         description: verifyDescription || undefined,
         category: verifyCategory || undefined,
       })
-      setShowVerifyModal(false)
+      setVerifyKB(null)
       setVerifySummary('')
       setVerifyDescription('')
       setVerifyCategory('')
       setVerificationSubmitted(true)
       toast('Submitted for verification', 'success')
-      loadDetail(selectedKB.uuid)
+      if (selectedKB?.uuid === kbUuid) loadDetail(kbUuid)
+      refresh()
     } catch (err) {
       console.error('Failed to submit for verification:', err)
       toast(err instanceof Error ? err.message : 'Failed to submit for verification', 'error')
@@ -377,6 +386,94 @@ export function KnowledgePanel() {
       setSubmittingVerify(false)
     }
   }
+
+  const shareDialogJSX = shareDialogKB ? (
+    <ShareWithTeamDialog
+      itemName={shareDialogKB.title}
+      onCancel={() => setShareDialogKB(null)}
+      onConfirm={confirmShareKB}
+    />
+  ) : null
+
+  const verifyModalJSX = verifyKB ? (
+    <div style={{
+      position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
+    }}>
+      <div style={{
+        backgroundColor: '#1e1e1e', borderRadius: 12, padding: 24, width: 400,
+        border: '1px solid #3a3a3a', maxHeight: '80vh', overflowY: 'auto',
+      }}>
+        <div style={{ fontSize: 16, fontWeight: 600, color: '#fff', marginBottom: 4 }}>
+          Submit for Verification
+        </div>
+        <div style={{ fontSize: 12, color: '#888', marginBottom: 16 }}>
+          {verifyKB.title}
+        </div>
+        <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#aaa', marginBottom: 4 }}>Summary</label>
+        <input
+          value={verifySummary}
+          onChange={e => setVerifySummary(e.target.value)}
+          placeholder="Brief summary of this knowledge base"
+          style={{
+            width: '100%', padding: '8px 10px', fontSize: 13, fontFamily: 'inherit',
+            backgroundColor: '#2a2a2a', border: '1px solid #3a3a3a', borderRadius: 6,
+            color: '#e5e5e5', outline: 'none', marginBottom: 12, boxSizing: 'border-box',
+          }}
+        />
+        <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#aaa', marginBottom: 4 }}>Description</label>
+        <textarea
+          value={verifyDescription}
+          onChange={e => setVerifyDescription(e.target.value)}
+          placeholder="Detailed description, intended use, etc."
+          rows={3}
+          style={{
+            width: '100%', padding: '8px 10px', fontSize: 13, fontFamily: 'inherit',
+            backgroundColor: '#2a2a2a', border: '1px solid #3a3a3a', borderRadius: 6,
+            color: '#e5e5e5', outline: 'none', marginBottom: 12, resize: 'vertical',
+            boxSizing: 'border-box',
+          }}
+        />
+        <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#aaa', marginBottom: 4 }}>Category</label>
+        <input
+          value={verifyCategory}
+          onChange={e => setVerifyCategory(e.target.value)}
+          placeholder="e.g. Legal, Medical, Research"
+          style={{
+            width: '100%', padding: '8px 10px', fontSize: 13, fontFamily: 'inherit',
+            backgroundColor: '#2a2a2a', border: '1px solid #3a3a3a', borderRadius: 6,
+            color: '#e5e5e5', outline: 'none', marginBottom: 16, boxSizing: 'border-box',
+          }}
+        />
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+          <button
+            onClick={() => setVerifyKB(null)}
+            style={{
+              padding: '6px 14px', fontSize: 13, fontWeight: 600, fontFamily: 'inherit',
+              color: '#aaa', backgroundColor: 'transparent', border: '1px solid #3a3a3a',
+              borderRadius: 6, cursor: 'pointer',
+            }}
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleSubmitVerification}
+            disabled={submittingVerify}
+            style={{
+              padding: '6px 14px', fontSize: 13, fontWeight: 600, fontFamily: 'inherit',
+              color: 'var(--highlight-text-color, #000)',
+              backgroundColor: 'var(--highlight-color, #eab308)',
+              border: 'none', borderRadius: 6,
+              cursor: submittingVerify ? 'default' : 'pointer',
+              opacity: submittingVerify ? 0.6 : 1,
+            }}
+          >
+            {submittingVerify ? 'Submitting...' : 'Submit'}
+          </button>
+        </div>
+      </div>
+    </div>
+  ) : null
 
   // Detail view
   if (selectedKB) {
@@ -576,7 +673,7 @@ export function KnowledgePanel() {
                 Chat with this KB
               </button>
               <button
-                onClick={handleToggleShare}
+                onClick={() => handleToggleShare(selectedKB)}
                 style={{
                   display: 'flex', alignItems: 'center', gap: 6,
                   padding: '6px 12px', fontSize: 12, fontWeight: 600, fontFamily: 'inherit',
@@ -617,7 +714,7 @@ export function KnowledgePanel() {
                   </span>
                 ) : (
                   <button
-                    onClick={() => setShowVerifyModal(true)}
+                    onClick={() => openVerifyModal(selectedKB)}
                     style={{
                       display: 'flex', alignItems: 'center', gap: 6,
                       padding: '6px 12px', fontSize: 12, fontWeight: 600, fontFamily: 'inherit',
@@ -774,82 +871,6 @@ export function KnowledgePanel() {
               .map(s => s.document_uuid!)}
           />
         )}
-        {showVerifyModal && (
-          <div style={{
-            position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
-          }}>
-            <div style={{
-              backgroundColor: '#1e1e1e', borderRadius: 12, padding: 24, width: 400,
-              border: '1px solid #3a3a3a', maxHeight: '80vh', overflowY: 'auto',
-            }}>
-              <div style={{ fontSize: 16, fontWeight: 600, color: '#fff', marginBottom: 16 }}>
-                Submit for Verification
-              </div>
-              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#aaa', marginBottom: 4 }}>Summary</label>
-              <input
-                value={verifySummary}
-                onChange={e => setVerifySummary(e.target.value)}
-                placeholder="Brief summary of this knowledge base"
-                style={{
-                  width: '100%', padding: '8px 10px', fontSize: 13, fontFamily: 'inherit',
-                  backgroundColor: '#2a2a2a', border: '1px solid #3a3a3a', borderRadius: 6,
-                  color: '#e5e5e5', outline: 'none', marginBottom: 12, boxSizing: 'border-box',
-                }}
-              />
-              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#aaa', marginBottom: 4 }}>Description</label>
-              <textarea
-                value={verifyDescription}
-                onChange={e => setVerifyDescription(e.target.value)}
-                placeholder="Detailed description, intended use, etc."
-                rows={3}
-                style={{
-                  width: '100%', padding: '8px 10px', fontSize: 13, fontFamily: 'inherit',
-                  backgroundColor: '#2a2a2a', border: '1px solid #3a3a3a', borderRadius: 6,
-                  color: '#e5e5e5', outline: 'none', marginBottom: 12, resize: 'vertical',
-                  boxSizing: 'border-box',
-                }}
-              />
-              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#aaa', marginBottom: 4 }}>Category</label>
-              <input
-                value={verifyCategory}
-                onChange={e => setVerifyCategory(e.target.value)}
-                placeholder="e.g. Legal, Medical, Research"
-                style={{
-                  width: '100%', padding: '8px 10px', fontSize: 13, fontFamily: 'inherit',
-                  backgroundColor: '#2a2a2a', border: '1px solid #3a3a3a', borderRadius: 6,
-                  color: '#e5e5e5', outline: 'none', marginBottom: 16, boxSizing: 'border-box',
-                }}
-              />
-              <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-                <button
-                  onClick={() => setShowVerifyModal(false)}
-                  style={{
-                    padding: '6px 14px', fontSize: 13, fontWeight: 600, fontFamily: 'inherit',
-                    color: '#aaa', backgroundColor: 'transparent', border: '1px solid #3a3a3a',
-                    borderRadius: 6, cursor: 'pointer',
-                  }}
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleSubmitVerification}
-                  disabled={submittingVerify}
-                  style={{
-                    padding: '6px 14px', fontSize: 13, fontWeight: 600, fontFamily: 'inherit',
-                    color: 'var(--highlight-text-color, #000)',
-                    backgroundColor: 'var(--highlight-color, #eab308)',
-                    border: 'none', borderRadius: 6,
-                    cursor: submittingVerify ? 'default' : 'pointer',
-                    opacity: submittingVerify ? 0.6 : 1,
-                  }}
-                >
-                  {submittingVerify ? 'Submitting...' : 'Submit'}
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
         {showOrgsModal && (
           <div style={{
             position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)',
@@ -935,13 +956,8 @@ export function KnowledgePanel() {
         )}
       </div>
 
-      {shareKBDialogOpen && (
-        <ShareWithTeamDialog
-          itemName={selectedKB.title}
-          onCancel={() => setShareKBDialogOpen(false)}
-          onConfirm={confirmShareKB}
-        />
-      )}
+      {shareDialogJSX}
+      {verifyModalJSX}
       </>
     )
   }
@@ -1124,6 +1140,8 @@ export function KnowledgePanel() {
                 }
               }
             : undefined}
+          onShare={activeTab === 'mine' ? handleToggleShare : undefined}
+          onSubmitVerify={activeTab === 'mine' ? openVerifyModal : undefined}
           onExplore={activeTab === 'explore' ? handleExploreKBClick : undefined}
           emptyComponent={activeTab === 'mine' && !search ? <KnowledgeExplainer /> : undefined}
           emptyMessage={
@@ -1165,6 +1183,8 @@ export function KnowledgePanel() {
         }}
       />
     )}
+    {shareDialogJSX}
+    {verifyModalJSX}
     </>
   )
 }
