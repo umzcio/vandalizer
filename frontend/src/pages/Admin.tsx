@@ -37,6 +37,7 @@ import * as orgApi from '../api/organizations'
 import type { Organization, OrgMember, OrgTeam } from '../api/organizations'
 import {
   getDemoStats, getDemoApplications, releaseDemoUser, activateDemoUser, restartDemoTrial,
+  promoteDemoUser,
   getPostExperienceResponses, sendTestEmail, adminResendCredentials, adminGetMagicLink,
   adminAddDemoUser,
 } from '../api/demo'
@@ -4182,6 +4183,30 @@ function DemoTab() {
     }
   }
 
+  async function handlePromote(uuid: string, email: string) {
+    const ok = await confirm({
+      title: 'Promote to full user?',
+      message: (
+        <>
+          Promote <strong>{email}</strong> to a permanent full user? Their trial expiry
+          will be cleared and they'll keep their account, data, and team membership.
+          This cannot be reversed from this screen.
+        </>
+      ),
+      confirmLabel: 'Promote',
+    })
+    if (!ok) return
+    setActionLoading(`promote-${uuid}`)
+    try {
+      await promoteDemoUser(uuid)
+      loadData()
+    } catch {
+      alert('Failed to promote user')
+    } finally {
+      setActionLoading(null)
+    }
+  }
+
   async function handleTestEmail(email: string) {
     setActionLoading(`test-${email}`)
     try {
@@ -4555,6 +4580,27 @@ function DemoTab() {
                             >
                               Restart Trial
                             </button>
+                          )}
+                          {(app.status === 'active' || app.status === 'expired' || app.status === 'completed') && app.user_is_demo && (
+                            <button
+                              onClick={() => handlePromote(app.uuid, app.email)}
+                              disabled={actionLoading === `promote-${app.uuid}`}
+                              title="Promote to permanent full user (clears trial expiry)"
+                              style={{
+                                display: 'flex', alignItems: 'center', gap: 4,
+                                padding: '4px 12px', borderRadius: 6, border: '1px solid #16a34a',
+                                background: '#f0fdf4', color: '#166534', fontSize: 12, fontWeight: 600,
+                                cursor: 'pointer', fontFamily: 'inherit',
+                                opacity: actionLoading === `promote-${app.uuid}` ? 0.5 : 1,
+                              }}
+                            >
+                              <Award size={12} /> Promote
+                            </button>
+                          )}
+                          {(app.status === 'active' || app.status === 'expired' || app.status === 'completed') && !app.user_is_demo && (
+                            <span style={{ fontSize: 12, color: '#166534', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>
+                              <Award size={12} /> Full user
+                            </span>
                           )}
                           <button
                             onClick={() => handleTestEmail(app.email)}
