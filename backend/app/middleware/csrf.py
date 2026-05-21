@@ -70,15 +70,18 @@ class CSRFMiddleware:
         method: str = scope["method"]
         path: str = scope["path"]
         headers = Headers(scope=scope)
-        cookies = _parse_cookie_header(headers.get("cookie", ""))
-        # Accept the header if it matches *either* cookie value.  A stale
-        # old-SPA tab will only read the legacy name (its regex doesn't match
-        # the ``__Host-`` prefix), while a fresh SPA reads the modern one.
-        # Once we've set the modern cookie alongside an existing legacy one
-        # the two values differ, so we can't pick a single "preferred" cookie
-        # without locking out one population.
+        cookie_header = headers.get("cookie", "")
+        cookies = _parse_cookie_header(cookie_header)
+        # Accept the header if it matches *any* cookie value the browser is
+        # sending.  A stale old-SPA tab will only read the legacy name (its
+        # regex doesn't match the ``__Host-`` prefix), while a fresh SPA reads
+        # the modern one.  When duplicate ``csrf_token`` cookies exist in the
+        # jar (sibling app on a parent domain, prior deploy with a different
+        # Path), the old SPA's regex picks the *first* value while SimpleCookie
+        # picks the *last* — so we must enumerate every legacy value, not just
+        # the deduped one, or the old-SPA header value won't be in the set.
         csrf_modern = cookies.get(primary_name)
-        csrf_legacy = cookies.get(LEGACY_COOKIE_NAME)
+        legacy_values = _all_cookie_values(cookie_header, LEGACY_COOKIE_NAME)
 
         is_safe = method in SAFE_METHODS
         is_exempt_path = any(path.startswith(prefix) for prefix in CSRF_EXEMPT_PREFIXES)
@@ -88,7 +91,7 @@ class CSRFMiddleware:
         # requests.
         if not is_safe and not is_exempt_path and not has_api_key:
             csrf_header = headers.get("x-csrf-token")
-            valid_values = {v for v in (csrf_modern, csrf_legacy) if v}
+            valid_values = {v for v in (csrf_modern, *legacy_values) if v}
             if not csrf_header or csrf_header not in valid_values:
                 response = JSONResponse(
                     {"detail": "CSRF validation failed"}, status_code=403
@@ -138,6 +141,23 @@ def _parse_cookie_header(cookie_header: str) -> dict[str, str]:
     for key, morsel in parsed.items():
         cookies[key] = morsel.value
     return cookies
+
+
+def _all_cookie_values(cookie_header: str, name: str) -> list[str]:
+    """Return every value the header carries for ``name``, including duplicates.
+
+    SimpleCookie collapses duplicate names to a single value (last-write-wins),
+    which loses any earlier value a stale old-SPA regex would have grabbed.
+    For double-submit validation we need the full multiset.
+    """
+    if not cookie_header:
+        return []
+    values: list[str] = []
+    for chunk in cookie_header.split(";"):
+        key, sep, value = chunk.strip().partition("=")
+        if sep and key == name:
+            values.append(value)
+    return values
 
 
 def _build_csrf_cookie_header(*, name: str, secure: bool) -> str:

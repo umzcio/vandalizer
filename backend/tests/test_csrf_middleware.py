@@ -238,6 +238,50 @@ class TestCSRFMiddleware:
         assert resp.status_code != 403, resp.text
 
     @pytest.mark.asyncio
+    async def test_duplicate_legacy_cookies_accepts_first_value(self, client):
+        """Duplicate ``csrf_token`` cookies + old SPA tab: header carries first value.
+
+        When a sibling app on a parent domain or a prior deploy left a second
+        ``csrf_token`` cookie at a different Path/Domain, the browser sends
+        both on every request.  Python's SimpleCookie collapses them to the
+        last value, but the old SPA's regex picks the *first* one — so the
+        backend's "accept either cookie value" set must contain every legacy
+        value present in the raw cookie header, not just the dedup'd one.
+        """
+        prod_settings = Settings(
+            jwt_secret_key="test-secret-key", environment="production"
+        )
+        user = _make_user()
+        token = create_access_token("testuser", prod_settings)
+        first_legacy = secrets.token_urlsafe(32)
+        last_legacy = secrets.token_urlsafe(32)
+        modern_value = secrets.token_urlsafe(32)
+
+        cookie_header = (
+            f"access_token={token}; "
+            f"csrf_token={first_legacy}; "
+            f"__Host-csrf_token={modern_value}; "
+            f"csrf_token={last_legacy}"
+        )
+
+        with patch("app.dependencies.get_settings", return_value=prod_settings), \
+             patch("app.dependencies.decode_token", return_value={"sub": "testuser", "type": "access"}), \
+             patch("app.dependencies.User") as MockUser:
+            MockUser.find_one = AsyncMock(return_value=user)
+
+            resp = await client.post(
+                "/api/documents/search",
+                json={"query": "test"},
+                headers={
+                    "Cookie": cookie_header,
+                    # Old SPA's regex picks the first csrf_token value
+                    "X-CSRF-Token": first_legacy,
+                },
+            )
+
+        assert resp.status_code != 403, resp.text
+
+    @pytest.mark.asyncio
     async def test_stale_spa_with_both_cookies_accepts_modern_header(self, client):
         """Same transition state, but the SPA has been reloaded.
 
@@ -303,6 +347,20 @@ class TestBuildCsrfCookieHeader:
         assert "Secure" in header
         # __Host- prefix forbids a Domain attribute
         assert "Domain=" not in header
+
+    def test_all_cookie_values_returns_every_duplicate(self):
+        """_all_cookie_values must return *every* value for the given name.
+
+        SimpleCookie's last-write-wins parse hides duplicates, but an old SPA
+        regex may pick any of them — validation needs the full multiset.
+        """
+        from app.middleware.csrf import _all_cookie_values
+
+        header = "access_token=t; csrf_token=A; __Host-csrf_token=M; csrf_token=B"
+        assert _all_cookie_values(header, "csrf_token") == ["A", "B"]
+        assert _all_cookie_values(header, "__Host-csrf_token") == ["M"]
+        assert _all_cookie_values(header, "missing") == []
+        assert _all_cookie_values("", "csrf_token") == []
 
     def test_primary_cookie_name_selection(self):
         from app.middleware.csrf import (
