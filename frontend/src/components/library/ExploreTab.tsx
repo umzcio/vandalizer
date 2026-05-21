@@ -158,7 +158,7 @@ export function ItemDetailModal({
               <span className="text-white/70">{item.total_chunks.toLocaleString()} chunks</span>
             )}
             {item.created_by && (
-              <AuthorChip author={item.created_by} size="md" label="by" />
+              <AuthorChip author={item.created_by} size="md" label="by" tone="on-dark" />
             )}
           </div>
         </div>
