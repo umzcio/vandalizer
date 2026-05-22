@@ -358,41 +358,59 @@ function AttachmentChip({
   attachment: a,
   ticketUuid,
   onPreview,
+  onDelete,
 }: {
   attachment: import('../../types/support').SupportAttachment
   ticketUuid: string
   onPreview: (a: import('../../types/support').SupportAttachment) => void
+  onDelete?: () => void
 }) {
   const [imgBroken, setImgBroken] = useState(false)
   const isImage = a.file_type?.startsWith('image/') && !imgBroken
   const downloadUrl = `/api/support/tickets/${ticketUuid}/attachments/${a.uuid}`
 
+  const removeButton = onDelete && (
+    <button
+      onClick={(e) => { e.stopPropagation(); e.preventDefault(); onDelete() }}
+      title="Remove attachment"
+      className="absolute -top-1.5 -right-1.5 inline-flex h-5 w-5 items-center justify-center rounded-full border border-gray-200 bg-white text-gray-500 shadow-sm hover:text-red-600"
+    >
+      <X className="h-3 w-3" />
+    </button>
+  )
+
   if (isImage) {
     return (
-      <button
-        onClick={() => onPreview(a)}
-        className="block rounded-lg overflow-hidden border border-gray-200 hover:border-blue-400 transition-colors cursor-pointer"
-        title={a.filename}
-      >
-        <img
-          src={downloadUrl}
-          alt={a.filename}
-          className="max-w-[220px] max-h-[160px] object-cover"
-          onError={() => setImgBroken(true)}
-        />
-      </button>
+      <div className="relative inline-block">
+        <button
+          onClick={() => onPreview(a)}
+          className="block rounded-lg overflow-hidden border border-gray-200 hover:border-blue-400 transition-colors cursor-pointer"
+          title={a.filename}
+        >
+          <img
+            src={downloadUrl}
+            alt={a.filename}
+            className="max-w-[220px] max-h-[160px] object-cover"
+            onError={() => setImgBroken(true)}
+          />
+        </button>
+        {removeButton}
+      </div>
     )
   }
 
   return (
-    <a
-      href={downloadUrl}
-      download={a.filename}
-      className="inline-flex items-center gap-1.5 rounded-lg bg-white px-2.5 py-1.5 text-xs text-blue-600 border border-gray-200 hover:border-blue-400 hover:bg-blue-50 transition-colors"
-    >
-      <Paperclip className="h-3 w-3" />
-      {a.filename}
-    </a>
+    <div className="relative inline-block">
+      <a
+        href={downloadUrl}
+        download={a.filename}
+        className="inline-flex items-center gap-1.5 rounded-lg bg-white px-2.5 py-1.5 text-xs text-blue-600 border border-gray-200 hover:border-blue-400 hover:bg-blue-50 transition-colors"
+      >
+        <Paperclip className="h-3 w-3" />
+        {a.filename}
+      </a>
+      {removeButton}
+    </div>
   )
 }
 
@@ -472,22 +490,46 @@ function ChatView({
   }
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
+    const picked = Array.from(e.target.files ?? [])
     if (fileInputRef.current) fileInputRef.current.value = ''
-    const sizeMB = (file.size / (1024 * 1024)).toFixed(1)
-    if (file.size > 10 * 1024 * 1024) {
-      toast(`File is ${sizeMB}MB. Must be under 10MB.`, 'error')
-      return
+    if (picked.length === 0) return
+    const accepted: File[] = []
+    for (const f of picked) {
+      const sizeMB = (f.size / (1024 * 1024)).toFixed(1)
+      if (f.size > 10 * 1024 * 1024) {
+        toast(`${f.name} is ${sizeMB}MB. Must be under 10MB.`, 'error')
+        continue
+      }
+      accepted.push(f)
     }
-    toast(`Uploading ${file.name} (${sizeMB}MB)...`, 'info')
+    if (accepted.length === 0) return
+    toast(
+      accepted.length === 1
+        ? `Uploading ${accepted[0].name}...`
+        : `Uploading ${accepted.length} files...`,
+      'info',
+    )
     try {
-      const updated = await supportApi.addAttachment(ticketUuid, file)
+      const updated = await supportApi.addAttachment(ticketUuid, accepted)
       setTicket(updated)
-      toast('File attached', 'success')
+      toast(
+        accepted.length === 1 ? 'File attached' : `${accepted.length} files attached`,
+        'success',
+      )
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Upload failed'
       toast(`Failed to upload file: ${msg}`, 'error')
+    }
+  }
+
+  const handleDeleteAttachment = async (attachmentUuid: string, filename: string) => {
+    if (!window.confirm(`Remove "${filename}" from this ticket?`)) return
+    try {
+      const updated = await supportApi.deleteAttachment(ticketUuid, attachmentUuid)
+      setTicket(updated)
+      toast('Attachment removed', 'success')
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'Failed to remove attachment', 'error')
     }
   }
 
@@ -705,9 +747,18 @@ function ChatView({
               )}
               {msgAttachments.length > 0 && (
                 <div className={`flex flex-col gap-1.5 mt-1.5 max-w-[85%] ${isMe ? 'items-end' : 'items-start'}`}>
-                  {msgAttachments.map((a) => (
-                    <AttachmentChip key={a.uuid} attachment={a} ticketUuid={ticketUuid} onPreview={setPreviewAttachment} />
-                  ))}
+                  {msgAttachments.map((a) => {
+                    const canDelete = !!user && (isSupportAgent || a.uploaded_by === user.user_id)
+                    return (
+                      <AttachmentChip
+                        key={a.uuid}
+                        attachment={a}
+                        ticketUuid={ticketUuid}
+                        onPreview={setPreviewAttachment}
+                        onDelete={canDelete ? () => handleDeleteAttachment(a.uuid, a.filename) : undefined}
+                      />
+                    )
+                  })}
                 </div>
               )}
             </div>
@@ -716,9 +767,18 @@ function ChatView({
         {/* Orphan attachments (no message_uuid) */}
         {ticket.attachments.filter(a => !a.message_uuid).length > 0 && (
           <div className="flex flex-wrap gap-1.5 pt-2 border-t border-gray-100">
-            {ticket.attachments.filter(a => !a.message_uuid).map((a) => (
-              <AttachmentChip key={a.uuid} attachment={a} ticketUuid={ticketUuid} onPreview={setPreviewAttachment} />
-            ))}
+            {ticket.attachments.filter(a => !a.message_uuid).map((a) => {
+              const canDelete = !!user && (isSupportAgent || a.uploaded_by === user.user_id)
+              return (
+                <AttachmentChip
+                  key={a.uuid}
+                  attachment={a}
+                  ticketUuid={ticketUuid}
+                  onPreview={setPreviewAttachment}
+                  onDelete={canDelete ? () => handleDeleteAttachment(a.uuid, a.filename) : undefined}
+                />
+              )
+            })}
           </div>
         )}
         <div ref={messagesEndRef} />
@@ -772,7 +832,7 @@ function ChatView({
           >
             <Paperclip className="h-4 w-4" />
           </button>
-          <input ref={fileInputRef} type="file" className="hidden" onChange={handleFileUpload} />
+          <input ref={fileInputRef} type="file" multiple className="hidden" onChange={handleFileUpload} />
           <textarea
             value={message}
             onChange={(e) => setMessage(e.target.value)}

@@ -9,9 +9,11 @@ inspects on every list/detail call.
 from __future__ import annotations
 
 import datetime
+import re
 from types import SimpleNamespace
 
 from app.services.support_service import (
+    _build_search_clause,
     _iso_utc,
     _ticket_summary,
     _ticket_to_dict,
@@ -200,3 +202,84 @@ class TestCanViewTicket:
     def test_stranger_blocked(self):
         from app.routers.support import _can_view_ticket
         assert not _can_view_ticket(self._ticket_dict(), self._user("eve"), False)
+
+
+# ---------------------------------------------------------------------------
+# Search clause builder — powers the Support Center search box
+# ---------------------------------------------------------------------------
+
+
+class TestBuildSearchClause:
+    def test_empty_string_returns_none(self):
+        assert _build_search_clause("") is None
+        assert _build_search_clause("   ") is None
+        assert _build_search_clause(None) is None
+
+    def test_text_search_covers_subject_user_and_message(self):
+        clause = _build_search_clause("alice")
+        assert clause is not None
+        fields = [next(iter(c)) for c in clause["$or"]]
+        assert "subject" in fields
+        assert "user_name" in fields
+        assert "user_email" in fields
+        assert "messages.content" in fields
+        # All field clauses are case-insensitive regex.
+        for entry in clause["$or"]:
+            for field, value in entry.items():
+                if field == "ticket_number":
+                    continue
+                assert value == {"$regex": "alice", "$options": "i"}
+
+    def test_numeric_search_adds_ticket_number_match(self):
+        clause = _build_search_clause("1024")
+        assert clause is not None
+        ticket_number_clauses = [
+            c for c in clause["$or"] if "ticket_number" in c
+        ]
+        assert ticket_number_clauses == [{"ticket_number": 1024}]
+
+    def test_hash_prefixed_number_also_hits_ticket_number(self):
+        # Agents copy "#1024" from the UI — both should work.
+        clause = _build_search_clause("#1024")
+        assert clause is not None
+        assert {"ticket_number": 1024} in clause["$or"]
+
+    def test_regex_specials_are_escaped(self):
+        # A user typing ".*" must not match every ticket — escape regex specials.
+        clause = _build_search_clause(".*")
+        assert clause is not None
+        for entry in clause["$or"]:
+            for field, value in entry.items():
+                if field == "ticket_number":
+                    continue
+                # Escaped pattern contains backslashes, not raw "." or "*".
+                assert value["$regex"] == re.escape(".*")
+
+
+# ---------------------------------------------------------------------------
+# Attachment delete-permission helper
+# ---------------------------------------------------------------------------
+
+
+class TestCanDeleteAttachment:
+    def _att(self, uploaded_by: str = "alice") -> dict:
+        return {"uuid": "att-1", "filename": "screen.png", "uploaded_by": uploaded_by}
+
+    def _user(self, uid: str) -> SimpleNamespace:
+        return SimpleNamespace(user_id=uid)
+
+    def test_uploader_can_delete_own_attachment(self):
+        from app.routers.support import _can_delete_attachment
+        assert _can_delete_attachment(self._att("alice"), self._user("alice"), False)
+
+    def test_non_uploader_non_support_cannot_delete(self):
+        # The end-user sitting on a ticket can't nuke someone else's evidence.
+        from app.routers.support import _can_delete_attachment
+        assert not _can_delete_attachment(
+            self._att("alice"), self._user("bob"), False,
+        )
+
+    def test_support_can_delete_anyone_attachment(self):
+        # Agents need this to clean up accidental/sensitive uploads.
+        from app.routers.support import _can_delete_attachment
+        assert _can_delete_attachment(self._att("alice"), self._user("agent"), True)

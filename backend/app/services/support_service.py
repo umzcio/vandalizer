@@ -3,6 +3,7 @@
 import asyncio
 import datetime
 import logging
+import re
 from pathlib import Path
 
 import redis.asyncio as aioredis
@@ -271,12 +272,59 @@ async def get_ticket_stats() -> dict:
     }
 
 
+def _build_search_clause(search: str | None) -> dict | None:
+    """Build a MongoDB ``$or`` clause that matches the search string across
+    the fields agents typically search by: ticket number, subject, requester
+    name/email, and message body.
+
+    Returns ``None`` for empty input. Regex specials in the search string are
+    escaped so a stray ``.`` or ``*`` doesn't act as a wildcard.
+    """
+    if not search:
+        return None
+    s = search.strip()
+    if not s:
+        return None
+
+    pattern = re.escape(s)
+    or_clauses: list[dict] = [
+        {"subject": {"$regex": pattern, "$options": "i"}},
+        {"user_name": {"$regex": pattern, "$options": "i"}},
+        {"user_email": {"$regex": pattern, "$options": "i"}},
+        {"messages.content": {"$regex": pattern, "$options": "i"}},
+    ]
+    # Allow searching by ticket number — accept either "1024" or "#1024".
+    digits = s.lstrip("#").strip()
+    if digits.isdigit():
+        try:
+            or_clauses.append({"ticket_number": int(digits)})
+        except ValueError:
+            pass
+    return {"$or": or_clauses}
+
+
+def _combine_query(eq: dict, or_clauses: list[dict]) -> dict:
+    """Combine equality filters with one or more ``$or``-style clauses.
+
+    Mongo treats top-level keys as implicit ``$and``, but multiple ``$or``
+    keys would clobber each other — wrap them in an explicit ``$and`` when
+    we have more than one.
+    """
+    if not or_clauses:
+        return eq
+    if len(or_clauses) == 1:
+        return {**eq, **or_clauses[0]}
+    return {**eq, "$and": or_clauses}
+
+
 async def list_tickets(
     user_id: str | None = None,
     status: str | None = None,
+    priority: str | None = None,
     assigned_to: str | None = None,
     tag: str | None = None,
     category: str | None = None,
+    search: str | None = None,
     limit: int = 50,
     offset: int = 0,
 ) -> list[dict]:
@@ -286,21 +334,26 @@ async def list_tickets(
     requester sees a single unified queue — owner_tickets vs. tickets I
     follow are distinguished client-side via `user_id` vs. `watcher_ids`.
     """
-    query: dict = {}
+    eq: dict = {}
+    or_clauses: list[dict] = []
     if user_id:
-        # Owner OR watcher. We $or this with the other filters via $and.
-        query["$or"] = [{"user_id": user_id}, {"watchers": user_id}]
+        or_clauses.append({"$or": [{"user_id": user_id}, {"watchers": user_id}]})
     if status:
-        query["status"] = status
+        eq["status"] = status
+    if priority:
+        eq["priority"] = priority
     if assigned_to:
-        query["assigned_to"] = assigned_to
+        eq["assigned_to"] = assigned_to
     if tag:
-        query["tags"] = tag
+        eq["tags"] = tag
     if category is not None:
-        query["category"] = category
+        eq["category"] = category
+    search_clause = _build_search_clause(search)
+    if search_clause:
+        or_clauses.append(search_clause)
 
     tickets = (
-        await SupportTicket.find(query)
+        await SupportTicket.find(_combine_query(eq, or_clauses))
         .sort("-updated_at")
         .skip(offset)
         .limit(limit)
@@ -311,25 +364,34 @@ async def list_tickets(
 
 async def list_all_tickets(
     status: str | None = None,
+    priority: str | None = None,
     tag: str | None = None,
     category: str | None = None,
+    search: str | None = None,
     limit: int = 50,
     offset: int = 0,
 ) -> list[dict]:
     """List every ticket in the system. Defaults to regular tickets only —
     pass ``category="feedback_prompt"`` to fetch trial check-ins instead.
     """
-    query: dict = {}
+    eq: dict = {}
+    or_clauses: list[dict] = []
     if status:
-        query["status"] = status
+        eq["status"] = status
+    if priority:
+        eq["priority"] = priority
     if tag:
-        query["tags"] = tag
+        eq["tags"] = tag
     if category is not None:
-        query["category"] = category
+        eq["category"] = category
     else:
-        query["category"] = _EXCLUDE_CHECK_INS
+        eq["category"] = _EXCLUDE_CHECK_INS
+    search_clause = _build_search_clause(search)
+    if search_clause:
+        or_clauses.append(search_clause)
+
     tickets = (
-        await SupportTicket.find(query)
+        await SupportTicket.find(_combine_query(eq, or_clauses))
         .sort("-updated_at")
         .skip(offset)
         .limit(limit)
@@ -506,6 +568,55 @@ async def add_attachment(
     ticket.updated_at = datetime.datetime.now(datetime.timezone.utc)
     await ticket.save()
     return await _ticket_to_dict(ticket)
+
+
+async def delete_attachment(
+    ticket_uuid: str,
+    attachment_uuid: str,
+) -> tuple[dict | None, dict | None]:
+    """Remove an attachment from a ticket. Also unlinks the on-disk blob.
+
+    Returns ``(ticket_dict, attachment_meta)``. ``attachment_meta`` is the
+    record that was removed (so the router can do authorization on it) or
+    ``None`` if it didn't exist. ``ticket_dict`` is ``None`` if the ticket
+    itself wasn't found.
+    """
+    ticket = await SupportTicket.find_one(SupportTicket.uuid == ticket_uuid)
+    if not ticket:
+        return None, None
+
+    target: SupportAttachment | None = None
+    remaining: list[SupportAttachment] = []
+    for a in ticket.attachments:
+        if a.uuid == attachment_uuid and target is None:
+            target = a
+        else:
+            remaining.append(a)
+    if target is None:
+        return await _ticket_to_dict(ticket), None
+
+    # Best-effort: drop the on-disk blob. Don't fail the request if the file
+    # is already gone — the DB record removal is what matters.
+    if target.file_path:
+        try:
+            p = Path(target.file_path)
+            if p.exists():
+                p.unlink()
+        except OSError:
+            logger.warning(
+                "Failed to unlink support attachment file at %s", target.file_path
+            )
+
+    ticket.attachments = remaining
+    ticket.updated_at = datetime.datetime.now(datetime.timezone.utc)
+    await ticket.save()
+
+    meta = {
+        "uuid": target.uuid,
+        "filename": target.filename,
+        "uploaded_by": target.uploaded_by,
+    }
+    return await _ticket_to_dict(ticket), meta
 
 
 async def get_attachment_data(ticket_uuid: str, attachment_uuid: str) -> dict | None:

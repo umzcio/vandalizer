@@ -33,6 +33,8 @@ export function listTickets(
   scope?: 'mine',
   tag?: string,
   category?: string,
+  search?: string,
+  priority?: string,
 ) {
   const params = new URLSearchParams()
   if (status) params.set('status', status)
@@ -41,6 +43,8 @@ export function listTickets(
   if (scope) params.set('scope', scope)
   if (tag) params.set('tag', tag)
   if (category) params.set('category', category)
+  if (search) params.set('search', search)
+  if (priority) params.set('priority', priority)
   return apiFetch<{ tickets: SupportTicketSummary[] }>(
     `/api/support/tickets?${params}`,
   )
@@ -73,10 +77,12 @@ export function editMessage(
 
 export async function addAttachment(
   ticketUuid: string,
-  file: File,
+  files: File | File[],
 ) {
+  const list = Array.isArray(files) ? files : [files]
+  if (list.length === 0) throw new ApiError(400, 'No files provided')
   const form = new FormData()
-  form.append('file', file)
+  for (const f of list) form.append('files', f)
 
   const res = await fetch(`/api/support/tickets/${ticketUuid}/attachments`, {
     method: 'POST',
@@ -89,6 +95,13 @@ export async function addAttachment(
     throw new ApiError(res.status, body.detail || 'Upload failed')
   }
   return res.json() as Promise<SupportTicket>
+}
+
+export function deleteAttachment(ticketUuid: string, attachmentUuid: string) {
+  return apiFetch<SupportTicket>(
+    `/api/support/tickets/${ticketUuid}/attachments/${attachmentUuid}`,
+    { method: 'DELETE' },
+  )
 }
 
 export function updateTicket(

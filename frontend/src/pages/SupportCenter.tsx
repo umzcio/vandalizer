@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback, useRef } from 'react'
 import { Navigate, useNavigate, useSearch } from '@tanstack/react-router'
 import {
   ArrowLeft, Check, MessageSquare, Send, Plus, Paperclip, Pencil, X, Loader2, Link2, Tag,
-  Eye, UserPlus,
+  Eye, UserPlus, Search, Flag,
 } from 'lucide-react'
 import { PageLayout } from '../components/layout/PageLayout'
 import { useAuth } from '../hooks/useAuth'
@@ -14,6 +14,7 @@ import type {
 
 type View = 'list' | 'new' | 'chat'
 type StatusFilter = 'all' | 'open' | 'in_progress' | 'closed'
+type PriorityFilter = 'all' | 'low' | 'normal' | 'high'
 
 const MAX_BYTES = 10 * 1024 * 1024
 
@@ -50,19 +51,34 @@ export default function SupportCenter() {
   const [stats, setStats] = useState<Stats | null>(null)
   // Default to "open" — agents care about the active queue, not the archive.
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('open')
+  const [priorityFilter, setPriorityFilter] = useState<PriorityFilter>('all')
   const [tagFilter, setTagFilter] = useState<string>('')
+  // `searchInput` is the live text in the box; `search` is the debounced value
+  // we actually query with, so typing doesn't fire a request on every keystroke.
+  const [searchInput, setSearchInput] = useState<string>('')
+  const [search, setSearch] = useState<string>('')
   const [allTags, setAllTags] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
   const [activeTicketUuid, setActiveTicketUuid] = useState<string | null>(null)
+
+  useEffect(() => {
+    const t = setTimeout(() => setSearch(searchInput.trim()), 250)
+    return () => clearTimeout(t)
+  }, [searchInput])
 
   const load = useCallback(async () => {
     setLoading(true)
     try {
       const statusParam = statusFilter === 'all' ? undefined : statusFilter
+      const priorityParam = priorityFilter === 'all' ? undefined : priorityFilter
       const tagParam = tagFilter || undefined
+      const searchParam = search || undefined
       const [s, t, tagList] = await Promise.all([
         supportApi.getTicketStats(),
-        supportApi.listTickets(statusParam, 200, 0, undefined, tagParam),
+        supportApi.listTickets(
+          statusParam, 200, 0, undefined, tagParam, undefined,
+          searchParam, priorityParam,
+        ),
         supportApi.listAllTags(),
       ])
       setStats(s)
@@ -73,7 +89,7 @@ export default function SupportCenter() {
     } finally {
       setLoading(false)
     }
-  }, [toast, statusFilter, tagFilter])
+  }, [toast, statusFilter, priorityFilter, tagFilter, search])
 
   useEffect(() => { load() }, [load])
 
@@ -115,9 +131,14 @@ export default function SupportCenter() {
           loading={loading}
           statusFilter={statusFilter}
           onStatusFilterChange={setStatusFilter}
+          priorityFilter={priorityFilter}
+          onPriorityFilterChange={setPriorityFilter}
           tagFilter={tagFilter}
           onTagFilterChange={setTagFilter}
           allTags={allTags}
+          searchInput={searchInput}
+          onSearchInputChange={setSearchInput}
+          activeSearch={search}
           currentUserId={user.user_id}
           onNew={() => setView('new')}
           onSelect={openTicket}
@@ -149,7 +170,9 @@ export default function SupportCenter() {
 
 function ListView({
   tickets, stats, loading, statusFilter, onStatusFilterChange,
+  priorityFilter, onPriorityFilterChange,
   tagFilter, onTagFilterChange, allTags,
+  searchInput, onSearchInputChange, activeSearch,
   currentUserId, onNew, onSelect,
 }: {
   tickets: SupportTicketSummary[]
@@ -157,13 +180,26 @@ function ListView({
   loading: boolean
   statusFilter: StatusFilter
   onStatusFilterChange: (s: StatusFilter) => void
+  priorityFilter: PriorityFilter
+  onPriorityFilterChange: (p: PriorityFilter) => void
   tagFilter: string
   onTagFilterChange: (t: string) => void
   allTags: string[]
+  searchInput: string
+  onSearchInputChange: (s: string) => void
+  activeSearch: string
   currentUserId: string
   onNew: () => void
   onSelect: (uuid: string) => void
 }) {
+  const hasFilters =
+    statusFilter !== 'open' || priorityFilter !== 'all' || tagFilter !== '' || activeSearch !== ''
+  const clearAll = () => {
+    onStatusFilterChange('open')
+    onPriorityFilterChange('all')
+    onTagFilterChange('')
+    onSearchInputChange('')
+  }
   const statCardStyle = (color: string): React.CSSProperties => ({
     flex: 1, padding: '16px 20px', background: '#fff', borderRadius: 'var(--ui-radius, 12px)',
     border: '1px solid #e5e7eb', borderLeft: `4px solid ${color}`,
@@ -218,8 +254,53 @@ function ListView({
 
       {/* Ticket list */}
       <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 'var(--ui-radius, 12px)', overflow: 'hidden' }}>
-        <div style={{ padding: '14px 20px', borderBottom: '1px solid #e5e7eb', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-          <div style={{ fontSize: 15, fontWeight: 600 }}>Tickets</div>
+        <div style={{ padding: '14px 20px', borderBottom: '1px solid #e5e7eb', display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+            <div style={{ fontSize: 15, fontWeight: 600 }}>Tickets</div>
+            {/* Search — matches ticket number, subject, requester, message body. */}
+            <div style={{ position: 'relative', flex: '1 1 260px', maxWidth: 380 }}>
+              <Search
+                size={14}
+                color="#9ca3af"
+                style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }}
+              />
+              <input
+                value={searchInput}
+                onChange={(e) => onSearchInputChange(e.target.value)}
+                placeholder="Search by #, name, email, or keyword…"
+                style={{
+                  width: '100%', padding: '6px 30px 6px 30px', fontSize: 13,
+                  border: '1px solid #e5e7eb', borderRadius: 9999,
+                  outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box',
+                }}
+              />
+              {searchInput && (
+                <button
+                  onClick={() => onSearchInputChange('')}
+                  title="Clear search"
+                  style={{
+                    position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)',
+                    background: 'none', border: 'none', cursor: 'pointer', color: '#9ca3af',
+                    padding: 2, display: 'inline-flex', alignItems: 'center',
+                  }}
+                >
+                  <X size={12} />
+                </button>
+              )}
+            </div>
+            {hasFilters && (
+              <button
+                onClick={clearAll}
+                style={{
+                  fontSize: 12, padding: '4px 10px', borderRadius: 9999,
+                  border: '1px solid #e5e7eb', background: '#fff', color: '#6b7280',
+                  cursor: 'pointer', fontFamily: 'inherit',
+                }}
+              >
+                Clear filters
+              </button>
+            )}
+          </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
             <div style={{ display: 'flex', gap: 4 }}>
               {(['all', 'open', 'in_progress', 'closed'] as StatusFilter[]).map(s => (
@@ -237,6 +318,24 @@ function ListView({
                   {s === 'in_progress' ? 'In Progress' : s.charAt(0).toUpperCase() + s.slice(1)}
                 </button>
               ))}
+            </div>
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+              <Flag size={12} color="#6b7280" />
+              <select
+                value={priorityFilter}
+                onChange={(e) => onPriorityFilterChange(e.target.value as PriorityFilter)}
+                style={{
+                  padding: '4px 8px', fontSize: 12, border: '1px solid #e5e7eb',
+                  borderRadius: 9999, background: '#fff',
+                  color: priorityFilter !== 'all' ? '#111827' : '#6b7280',
+                  cursor: 'pointer', fontFamily: 'inherit',
+                }}
+              >
+                <option value="all">All priorities</option>
+                <option value="high">High</option>
+                <option value="normal">Normal</option>
+                <option value="low">Low</option>
+              </select>
             </div>
             <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
               <Tag size={12} color="#6b7280" />
@@ -266,7 +365,23 @@ function ListView({
         ) : tickets.length === 0 ? (
           <div style={{ padding: 40, textAlign: 'center', color: '#9ca3af' }}>
             <MessageSquare size={28} color="#d1d5db" style={{ display: 'block', margin: '0 auto 8px' }} />
-            <div style={{ fontSize: 14 }}>No tickets {statusFilter !== 'all' ? `with status "${statusFilter.replace('_', ' ')}"` : 'yet'}.</div>
+            <div style={{ fontSize: 14 }}>
+              {activeSearch
+                ? `No tickets match "${activeSearch}".`
+                : `No tickets ${statusFilter !== 'all' ? `with status "${statusFilter.replace('_', ' ')}"` : 'yet'}.`}
+            </div>
+            {hasFilters && (
+              <button
+                onClick={clearAll}
+                style={{
+                  marginTop: 10, fontSize: 12, padding: '4px 12px', borderRadius: 9999,
+                  border: '1px solid #e5e7eb', background: '#fff', color: '#374151',
+                  cursor: 'pointer', fontFamily: 'inherit',
+                }}
+              >
+                Clear filters
+              </button>
+            )}
           </div>
         ) : (
           <div>
@@ -626,19 +741,35 @@ function ChatView({
   }
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
+    const picked = Array.from(e.target.files ?? [])
     if (fileInputRef.current) fileInputRef.current.value = ''
-    if (file.size > MAX_BYTES) {
-      toast(`File must be under 10MB`, 'error')
-      return
+    if (picked.length === 0) return
+    const accepted: File[] = []
+    for (const f of picked) {
+      if (f.size > MAX_BYTES) { toast(`${f.name} is over 10MB`, 'error'); continue }
+      accepted.push(f)
     }
+    if (accepted.length === 0) return
     try {
-      const updated = await supportApi.addAttachment(ticketUuid, file)
+      const updated = await supportApi.addAttachment(ticketUuid, accepted)
       setTicket(updated)
-      toast('File attached', 'success')
+      toast(
+        accepted.length === 1 ? 'File attached' : `${accepted.length} files attached`,
+        'success',
+      )
     } catch (err) {
       toast(err instanceof Error ? err.message : 'Upload failed', 'error')
+    }
+  }
+
+  const handleDeleteAttachment = async (attachmentUuid: string, filename: string) => {
+    if (!window.confirm(`Remove "${filename}" from this ticket?`)) return
+    try {
+      const updated = await supportApi.deleteAttachment(ticketUuid, attachmentUuid)
+      setTicket(updated)
+      toast('Attachment removed', 'success')
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'Failed to remove attachment', 'error')
     }
   }
 
@@ -879,9 +1010,18 @@ function ChatView({
                 )}
                 {msgAttachments.length > 0 && (
                   <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 6, alignItems: isSupport ? 'flex-end' : 'flex-start' }}>
-                    {msgAttachments.map((a) => (
-                      <AttachmentChip key={a.uuid} attachment={a} ticketUuid={ticketUuid} onPreview={setPreviewAttachment} />
-                    ))}
+                    {msgAttachments.map((a) => {
+                      const canDelete = !!user && (user.is_support_agent || a.uploaded_by === user.user_id)
+                      return (
+                        <AttachmentChip
+                          key={a.uuid}
+                          attachment={a}
+                          ticketUuid={ticketUuid}
+                          onPreview={setPreviewAttachment}
+                          onDelete={canDelete ? () => handleDeleteAttachment(a.uuid, a.filename) : undefined}
+                        />
+                      )
+                    })}
                   </div>
                 )}
               </div>
@@ -889,9 +1029,18 @@ function ChatView({
           })}
           {ticket.attachments.filter((a) => !a.message_uuid).length > 0 && (
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, paddingTop: 8, borderTop: '1px solid #f3f4f6' }}>
-              {ticket.attachments.filter((a) => !a.message_uuid).map((a) => (
-                <AttachmentChip key={a.uuid} attachment={a} ticketUuid={ticketUuid} onPreview={setPreviewAttachment} />
-              ))}
+              {ticket.attachments.filter((a) => !a.message_uuid).map((a) => {
+                const canDelete = !!user && (user.is_support_agent || a.uploaded_by === user.user_id)
+                return (
+                  <AttachmentChip
+                    key={a.uuid}
+                    attachment={a}
+                    ticketUuid={ticketUuid}
+                    onPreview={setPreviewAttachment}
+                    onDelete={canDelete ? () => handleDeleteAttachment(a.uuid, a.filename) : undefined}
+                  />
+                )
+              })}
             </div>
           )}
           <div ref={messagesEndRef} />
@@ -907,7 +1056,7 @@ function ChatView({
             >
               <Paperclip size={16} />
             </button>
-            <input ref={fileInputRef} type="file" onChange={handleFileUpload} style={{ display: 'none' }} />
+            <input ref={fileInputRef} type="file" multiple onChange={handleFileUpload} style={{ display: 'none' }} />
             <input
               value={reply}
               onChange={(e) => setReply(e.target.value)}
@@ -974,49 +1123,75 @@ function ChatView({
 }
 
 function AttachmentChip({
-  attachment: a, ticketUuid, onPreview,
+  attachment: a, ticketUuid, onPreview, onDelete,
 }: {
   attachment: SupportAttachment
   ticketUuid: string
   onPreview: (a: SupportAttachment) => void
+  onDelete?: () => void
 }) {
   const [imgBroken, setImgBroken] = useState(false)
   const isImage = a.file_type?.startsWith('image/') && !imgBroken
   const downloadUrl = `/api/support/tickets/${ticketUuid}/attachments/${a.uuid}`
 
+  // Floating remove button shared by both image and file chips.
+  const removeButton = onDelete && (
+    <button
+      onClick={(e) => { e.stopPropagation(); e.preventDefault(); onDelete() }}
+      title="Remove attachment"
+      style={{
+        position: 'absolute', top: -6, right: -6,
+        width: 20, height: 20, padding: 0, borderRadius: '50%',
+        border: '1px solid #e5e7eb', background: '#fff', color: '#6b7280',
+        cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+        boxShadow: '0 1px 3px rgba(0,0,0,0.12)',
+      }}
+      onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.color = '#dc2626' }}
+      onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.color = '#6b7280' }}
+    >
+      <X size={11} />
+    </button>
+  )
+
   if (isImage) {
     return (
-      <button
-        onClick={() => onPreview(a)}
-        title={a.filename}
-        style={{
-          padding: 0, border: '1px solid #e5e7eb', borderRadius: 'var(--ui-radius, 12px)',
-          overflow: 'hidden', cursor: 'pointer', background: 'none',
-        }}
-      >
-        <img
-          src={downloadUrl}
-          alt={a.filename}
-          onError={() => setImgBroken(true)}
-          style={{ display: 'block', maxWidth: 220, maxHeight: 160, objectFit: 'cover' }}
-        />
-      </button>
+      <div style={{ position: 'relative', display: 'inline-block' }}>
+        <button
+          onClick={() => onPreview(a)}
+          title={a.filename}
+          style={{
+            padding: 0, border: '1px solid #e5e7eb', borderRadius: 'var(--ui-radius, 12px)',
+            overflow: 'hidden', cursor: 'pointer', background: 'none',
+          }}
+        >
+          <img
+            src={downloadUrl}
+            alt={a.filename}
+            onError={() => setImgBroken(true)}
+            style={{ display: 'block', maxWidth: 220, maxHeight: 160, objectFit: 'cover' }}
+          />
+        </button>
+        {removeButton}
+      </div>
     )
   }
 
   return (
-    <a
-      href={downloadUrl}
-      download={a.filename}
-      style={{
-        display: 'inline-flex', alignItems: 'center', gap: 6,
-        padding: '6px 10px', border: '1px solid #e5e7eb', borderRadius: 'var(--ui-radius, 12px)',
-        background: '#fff', color: '#2563eb', fontSize: 12, textDecoration: 'none',
-      }}
-    >
-      <Paperclip size={12} />
-      {a.filename}
-    </a>
+    <div style={{ position: 'relative', display: 'inline-block' }}>
+      <a
+        href={downloadUrl}
+        download={a.filename}
+        style={{
+          display: 'inline-flex', alignItems: 'center', gap: 6,
+          padding: '6px 10px', border: '1px solid #e5e7eb', borderRadius: 'var(--ui-radius, 12px)',
+          background: '#fff', color: '#2563eb', fontSize: 12, textDecoration: 'none',
+        }}
+      >
+        <Paperclip size={12} />
+        {a.filename}
+      </a>
+      {removeButton}
+    </div>
   )
 }
 

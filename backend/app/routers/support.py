@@ -59,6 +59,13 @@ def _can_view_ticket(ticket: dict, user: User, is_support: bool) -> bool:
     return user.user_id in watcher_ids
 
 
+def _can_delete_attachment(attachment: dict, user: User, is_support: bool) -> bool:
+    """Support agents can delete any attachment; otherwise only the uploader."""
+    if is_support:
+        return True
+    return attachment.get("uploaded_by") == user.user_id
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -128,8 +135,10 @@ async def create_ticket(
 @router.get("/tickets")
 async def list_tickets(
     status: str | None = None,
+    priority: str | None = None,
     tag: str | None = None,
     category: str | None = None,
+    search: str | None = None,
     limit: int = 50,
     offset: int = 0,
     scope: str | None = None,
@@ -146,18 +155,23 @@ async def list_tickets(
     - ``category``: support-only filter. Used by the admin Demo tab to fetch
       trial check-in tickets (``category=feedback_prompt``), which the global
       Support Center listing excludes by default.
+    - ``search``: case-insensitive match across ticket number, subject,
+      requester name/email, and message body.
+    - ``priority``: filter to a specific priority (low/normal/high).
     """
     is_support = await _is_support_user(user)
     effective_tag = tag if is_support else None
     effective_category = category if is_support else None
     if scope == "mine" or not is_support:
         tickets = await support_service.list_tickets(
-            user_id=user.user_id, status=status, tag=effective_tag,
-            category=effective_category, limit=limit, offset=offset,
+            user_id=user.user_id, status=status, priority=priority,
+            tag=effective_tag, category=effective_category,
+            search=search, limit=limit, offset=offset,
         )
     else:
         tickets = await support_service.list_all_tickets(
-            status=status, tag=effective_tag, category=effective_category,
+            status=status, priority=priority, tag=effective_tag,
+            category=effective_category, search=search,
             limit=limit, offset=offset,
         )
     if not is_support:
@@ -256,9 +270,15 @@ async def edit_message(
 @router.post("/tickets/{ticket_uuid}/attachments")
 async def add_attachment(
     ticket_uuid: str,
-    file: UploadFile = File(...),
+    files: list[UploadFile] = File(...),
     user: User = Depends(get_current_user),
 ):
+    """Upload one or more attachments to an existing ticket.
+
+    Accepts the ``files`` form field repeated per file (matches the
+    multi-file create_ticket flow). Validates every file's size up-front so
+    a partial upload doesn't half-mutate the ticket.
+    """
     ticket_data = await support_service.get_ticket(ticket_uuid)
     if not ticket_data:
         raise HTTPException(status_code=404, detail="Ticket not found")
@@ -267,19 +287,72 @@ async def add_attachment(
     if not _can_view_ticket(ticket_data, user, is_support):
         raise HTTPException(status_code=403, detail="Not authorized")
 
-    file_bytes = await file.read()
-    if len(file_bytes) > 10 * 1024 * 1024:
-        raise HTTPException(status_code=413, detail="File must be under 10MB")
+    if not files:
+        raise HTTPException(status_code=400, detail="No files provided")
 
-    result = await support_service.add_attachment(
-        ticket_uuid=ticket_uuid,
-        user=user,
-        filename=file.filename or "attachment",
-        file_type=file.content_type,
-        file_bytes=file_bytes,
-    )
-    if not result:
+    payloads: list[tuple[str, str | None, bytes]] = []
+    for f in files:
+        data = await f.read()
+        if len(data) > 10 * 1024 * 1024:
+            raise HTTPException(
+                status_code=413,
+                detail=f"File '{f.filename}' must be under 10MB",
+            )
+        payloads.append((f.filename or "attachment", f.content_type, data))
+
+    result: dict | None = None
+    for filename, content_type, data in payloads:
+        result = await support_service.add_attachment(
+            ticket_uuid=ticket_uuid,
+            user=user,
+            filename=filename,
+            file_type=content_type,
+            file_bytes=data,
+        )
+        if not result:
+            raise HTTPException(status_code=404, detail="Ticket not found")
+    assert result is not None  # `files` is non-empty by the check above
+    return result if is_support else _strip_tags(result)
+
+
+@router.delete("/tickets/{ticket_uuid}/attachments/{attachment_uuid}")
+async def delete_attachment(
+    ticket_uuid: str,
+    attachment_uuid: str,
+    user: User = Depends(get_current_user),
+):
+    """Remove an attachment. Uploader can delete their own; support agents
+    can delete any. Returns the updated ticket payload."""
+    ticket_data = await support_service.get_ticket(ticket_uuid)
+    if not ticket_data:
         raise HTTPException(status_code=404, detail="Ticket not found")
+
+    is_support = await _is_support_user(user)
+    if not _can_view_ticket(ticket_data, user, is_support):
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    target = next(
+        (a for a in ticket_data.get("attachments", []) if a["uuid"] == attachment_uuid),
+        None,
+    )
+    if target is None:
+        raise HTTPException(status_code=404, detail="Attachment not found")
+
+    if not _can_delete_attachment(target, user, is_support):
+        raise HTTPException(
+            status_code=403,
+            detail="You can only delete attachments you uploaded",
+        )
+
+    result, removed = await support_service.delete_attachment(
+        ticket_uuid=ticket_uuid,
+        attachment_uuid=attachment_uuid,
+    )
+    if result is None:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+    if removed is None:
+        # Race: attachment was already gone between the check and delete.
+        raise HTTPException(status_code=404, detail="Attachment not found")
     return result if is_support else _strip_tags(result)
 
 
