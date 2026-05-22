@@ -174,6 +174,34 @@ class TestCSRFMiddleware:
         assert resp.status_code == 200
 
     @pytest.mark.asyncio
+    async def test_saml_acs_bypasses_csrf(self, client):
+        """POST to /api/auth/saml/acs (cross-site from IdP) bypasses CSRF.
+
+        The IdP returns a self-submitting form that POSTs the SAML response
+        back to the SP. That POST is cross-site, so the browser doesn't send
+        the CSRF cookie and there's no way to attach a CSRF header. The
+        endpoint must be exempt — the SAML assertion's signature is what
+        authenticates the response, not double-submit.
+        """
+        # Mock SystemConfig so the handler short-circuits with a 400 "SAML not
+        # configured" instead of trying to hit the (uninitialized) DB. We only
+        # care that the request gets past the CSRF middleware.
+        config = MagicMock()
+        config.oauth_providers = []
+        with patch(
+            "app.routers.auth.SystemConfig.get_config",
+            new_callable=AsyncMock,
+            return_value=config,
+        ):
+            resp = await client.post(
+                "/api/auth/saml/acs",
+                data={"SAMLResponse": "fake-not-validated-here"},
+            )
+        # Will be 400 ("SAML not configured") here, but MUST NOT be a 403
+        # from the CSRF middleware.
+        assert resp.status_code != 403, resp.text
+
+    @pytest.mark.asyncio
     async def test_legacy_cookie_still_accepted(self, client):
         """A user holding only the legacy csrf_token cookie can still validate.
 
@@ -325,7 +353,10 @@ class TestBuildCsrfCookieHeader:
         header = _build_csrf_cookie_header(name="csrf_token", secure=False)
         assert header.startswith("csrf_token=")
         assert "Path=/" in header
-        assert "SameSite=Strict" in header
+        # Lax (not Strict) — avoids the "freshly-set Strict cookie not readable
+        # after OAuth redirect" quirk that breaks invite-accept flows.
+        assert "SameSite=Lax" in header
+        assert "SameSite=Strict" not in header
         assert "Max-Age=" in header
         assert "Secure" not in header
 
@@ -343,7 +374,10 @@ class TestBuildCsrfCookieHeader:
         header = _build_csrf_cookie_header(name="__Host-csrf_token", secure=True)
         assert header.startswith("__Host-csrf_token=")
         assert "Path=/" in header
-        assert "SameSite=Strict" in header
+        # Lax (not Strict) — avoids the "freshly-set Strict cookie not readable
+        # after OAuth redirect" quirk that breaks invite-accept flows.
+        assert "SameSite=Lax" in header
+        assert "SameSite=Strict" not in header
         assert "Secure" in header
         # __Host- prefix forbids a Domain attribute
         assert "Domain=" not in header

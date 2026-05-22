@@ -17,6 +17,11 @@ CSRF_EXEMPT_PREFIXES = (
     "/api/auth/logout",
     "/api/auth/refresh",
     "/api/auth/oauth/",
+    # SAML SSO: the IdP returns a self-submitting form that POSTs to
+    # /api/auth/saml/acs cross-site. It can't carry a CSRF header and Lax
+    # cookies don't ride along on cross-site POSTs — only an exemption
+    # works here. The endpoint validates the signed SAML assertion itself.
+    "/api/auth/saml/",
     "/api/auth/config",
     "/api/webhooks/",
     "/api/demo/apply",
@@ -166,12 +171,25 @@ def _build_csrf_cookie_header(*, name: str, secure: bool) -> str:
     Assembled by hand rather than via ``SimpleCookie`` so the ``__Host-``
     prefix in the name passes through verbatim without any quoting.
     httpOnly is intentionally omitted — JS must be able to read this cookie.
+
+    ``SameSite=Lax`` (not Strict) because Strict has a documented browser
+    quirk: after an OAuth/SAML callback (a cross-site request that sets a
+    fresh Strict cookie), Chrome puts the just-set cookie in a transitional
+    "lax-allow-unsafe" mode on the next navigation, so ``document.cookie``
+    can briefly return empty for it. The SPA then can't echo the value into
+    the ``X-CSRF-Token`` header and the next POST 403s. Lax has none of
+    that quirk and provides equivalent CSRF protection: the double-submit
+    pattern's security comes from the Same-Origin Policy preventing
+    cross-origin *reads* of the cookie, not from SameSite. Lax already
+    blocks cross-site POSTs (the actual attack vector). This matches what
+    Django/Laravel/OWASP recommend for CSRF token cookies and aligns with
+    the ``access_token`` cookie which is also Lax.
     """
     value = secrets.token_urlsafe(32)
     parts = [
         f"{name}={value}",
         "Path=/",
-        "SameSite=Strict",
+        "SameSite=Lax",
         f"Max-Age={86400 * 30}",
     ]
     if secure:
