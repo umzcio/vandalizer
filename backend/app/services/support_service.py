@@ -157,6 +157,7 @@ async def _ticket_to_dict(t: SupportTicket) -> dict:
                 "user_name": m.user_name,
                 "content": m.content,
                 "is_support_reply": m.is_support_reply,
+                "is_internal_note": getattr(m, "is_internal_note", False),
                 "created_at": _iso_utc(m.created_at),
                 "edited_at": _iso_utc(getattr(m, "edited_at", None)),
             }
@@ -186,6 +187,13 @@ async def _ticket_to_dict(t: SupportTicket) -> dict:
 def _ticket_summary(t: SupportTicket) -> dict:
     """Lightweight dict for list views (no messages/attachments)."""
     last_message = t.messages[-1] if t.messages else None
+    # Non-support callers should never see "activity" derived from an internal
+    # note. The router swaps these `last_visible_*` fields into `last_message_*`
+    # when stripping internal notes for the ticket owner / non-agent watchers.
+    visible = [
+        m for m in t.messages if not getattr(m, "is_internal_note", False)
+    ]
+    last_visible = visible[-1] if visible else None
     return {
         "uuid": t.uuid,
         "ticket_number": getattr(t, "ticket_number", None),
@@ -196,6 +204,7 @@ def _ticket_summary(t: SupportTicket) -> dict:
         "user_name": t.user_name,
         "assigned_to": t.assigned_to,
         "message_count": len(t.messages),
+        "visible_message_count": len(visible),
         "last_message_preview": (
             last_message.content[:120] if last_message else None
         ),
@@ -203,8 +212,23 @@ def _ticket_summary(t: SupportTicket) -> dict:
         "last_message_is_support_reply": (
             last_message.is_support_reply if last_message else None
         ),
+        "last_message_is_internal_note": (
+            getattr(last_message, "is_internal_note", False) if last_message else None
+        ),
         "last_message_user_id": (
             last_message.user_id if last_message else None
+        ),
+        "last_visible_message_preview": (
+            last_visible.content[:120] if last_visible else None
+        ),
+        "last_visible_message_at": (
+            _iso_utc(last_visible.created_at) if last_visible else None
+        ),
+        "last_visible_message_is_support_reply": (
+            last_visible.is_support_reply if last_visible else None
+        ),
+        "last_visible_message_user_id": (
+            last_visible.user_id if last_visible else None
         ),
         "read_by": t.read_by,
         "category": t.category,
@@ -429,24 +453,38 @@ async def add_message(
     user: User,
     content: str,
     is_support_reply: bool = False,
+    is_internal_note: bool = False,
 ) -> dict | None:
     ticket = await SupportTicket.find_one(SupportTicket.uuid == ticket_uuid)
     if not ticket:
         return None
+
+    # Internal notes are an agent-to-agent annotation — they're always a
+    # support reply, never re-open a closed ticket, and never notify the
+    # requester or non-agent watchers.
+    if is_internal_note:
+        is_support_reply = True
 
     msg = SupportMessage(
         user_id=user.user_id,
         user_name=user.name or user.user_id,
         content=content,
         is_support_reply=is_support_reply,
+        is_internal_note=is_internal_note,
     )
     ticket.messages.append(msg)
     ticket.updated_at = datetime.datetime.now(datetime.timezone.utc)
-    # Reset read tracking — only the sender has "read" this state
+    # Reset read tracking — only the sender has "read" this state. For internal
+    # notes, all other agents still need a "needs attention" indicator, so the
+    # same reset applies.
     ticket.read_by = [user.user_id]
 
-    # Re-open if closed and user replies
-    if ticket.status == TicketStatus.CLOSED and not is_support_reply:
+    # Re-open if closed and user replies (internal notes don't change status)
+    if (
+        ticket.status == TicketStatus.CLOSED
+        and not is_support_reply
+        and not is_internal_note
+    ):
         ticket.status = TicketStatus.OPEN
 
     await ticket.save()
@@ -457,8 +495,11 @@ async def add_message(
         from app.services.feedback_prompt_service import mark_responded
         await mark_responded(ticket.uuid)
 
-    # Notify the other party
-    if is_support_reply:
+    if is_internal_note:
+        # Only notify other support agents — the requester and any non-agent
+        # watchers must never learn an internal note exists.
+        await _notify_support_contacts_internal_note(ticket, msg)
+    elif is_support_reply:
         await create_notification(
             user_id=ticket.user_id,
             kind="support_reply",
@@ -471,6 +512,8 @@ async def add_message(
         )
         # Email the ticket owner (with cooldown to avoid spam during live chat)
         await _email_ticket_owner_reply(ticket, msg)
+        # Watchers on a regular support reply
+        await _notify_watchers_new_message(ticket, msg)
     else:
         await _notify_support_contacts_new_message(ticket, msg)
         # Watchers can reply too — when they do, the owner needs to know
@@ -486,10 +529,8 @@ async def add_message(
                 item_id=ticket.uuid,
                 item_name=ticket.subject,
             )
-
-    # Notify watchers on every new message (they followed the ticket precisely
-    # to stay in the loop). Skip the sender — they obviously know.
-    await _notify_watchers_new_message(ticket, msg)
+        # Watchers on a regular customer / watcher message
+        await _notify_watchers_new_message(ticket, msg)
 
     return await _ticket_to_dict(ticket)
 
@@ -955,6 +996,31 @@ async def _notify_support_contacts_new_message(
                     ticket_number=ticket.ticket_number,
                 )
                 await send_email(email, subject, html, settings, email_type="support_new_message")
+
+
+async def _notify_support_contacts_internal_note(
+    ticket: SupportTicket, msg: SupportMessage
+) -> None:
+    """In-app notification to other support agents about a new internal note.
+
+    No email — internal notes are typically a quick aside, and the daily
+    rhythm of agent-to-agent annotations shouldn't fill anyone's inbox.
+    """
+    contacts = await _get_all_support_user_ids()
+    for contact in contacts:
+        user_id = contact.get("user_id")
+        if not user_id or user_id == msg.user_id:
+            continue
+        await create_notification(
+            user_id=user_id,
+            kind="support_internal_note",
+            title=f"Internal note on ticket: {ticket.subject}",
+            body=msg.content[:120],
+            link=f"/support?ticket={ticket.uuid}",
+            item_kind="support_ticket",
+            item_id=ticket.uuid,
+            item_name=ticket.subject,
+        )
 
 
 async def _notify_support_contacts_tag_added(

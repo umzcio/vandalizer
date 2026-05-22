@@ -18,6 +18,11 @@ from app.services.support_service import (
     _ticket_summary,
     _ticket_to_dict,
 )
+from app.routers.support import (
+    _drop_visible_helpers,
+    _strip_for_non_support,
+    _view,
+)
 
 
 class TestIsoUtc:
@@ -42,14 +47,17 @@ def _enum(value: str) -> SimpleNamespace:
 def _message(
     content: str = "hi",
     is_support_reply: bool = False,
+    is_internal_note: bool = False,
     edited_at: datetime.datetime | None = None,
+    user_id: str = "alice",
 ) -> SimpleNamespace:
     return SimpleNamespace(
         uuid=f"msg-{content[:3]}",
-        user_id="alice",
-        user_name="Alice",
+        user_id=user_id,
+        user_name=user_id.title(),
         content=content,
         is_support_reply=is_support_reply,
+        is_internal_note=is_internal_note,
         created_at=datetime.datetime(2026, 3, 5, 10, 0, 0),
         edited_at=edited_at,
     )
@@ -169,6 +177,56 @@ class TestTicketSummary:
         assert s["watcher_ids"] == ["bob", "carol"]
 
 
+class TestInternalNotesSerialization:
+    """Internal notes are agent-to-agent annotations. The service emits the
+    raw view (every message + helper fields) and the router strips them for
+    non-support callers — these tests cover the service half."""
+
+    async def test_internal_note_flag_propagates_to_dict(self):
+        msgs = [
+            _message("customer ping"),
+            _message("note for team", is_support_reply=True, is_internal_note=True, user_id="agent"),
+        ]
+        d = await _ticket_to_dict(_ticket(messages=msgs))
+        assert d["messages"][0]["is_internal_note"] is False
+        assert d["messages"][1]["is_internal_note"] is True
+
+    def test_summary_carries_last_visible_helper_fields(self):
+        # Customer ping, then an internal note from an agent. The "true last"
+        # message is the note; the "last visible" is the customer ping. The
+        # router uses these helper fields to swap into last_message_* for the
+        # ticket owner so they don't see a phantom timestamp.
+        first = _message("customer ping")
+        note = _message("agent note", is_support_reply=True, is_internal_note=True, user_id="agent")
+        s = _ticket_summary(_ticket(messages=[first, note]))
+        assert s["last_message_preview"] == "agent note"
+        assert s["last_message_is_internal_note"] is True
+        assert s["last_visible_message_preview"] == "customer ping"
+        assert s["last_visible_message_is_support_reply"] is False
+        assert s["last_visible_message_user_id"] == "alice"
+        assert s["visible_message_count"] == 1
+        assert s["message_count"] == 2
+
+    def test_summary_when_no_internal_note_present(self):
+        first = _message("customer ping")
+        reply = _message("agent reply", is_support_reply=True)
+        s = _ticket_summary(_ticket(messages=[first, reply]))
+        # No internal note → flag is False and the visible-helpers track the
+        # absolute last message.
+        assert s["last_message_is_internal_note"] is False
+        assert s["last_visible_message_preview"] == "agent reply"
+        assert s["visible_message_count"] == 2
+
+    def test_summary_with_only_internal_note_has_no_visible_message(self):
+        # Edge case: a ticket whose only message is somehow an internal note —
+        # the customer should see "no messages" rather than a phantom preview.
+        note = _message("just a note", is_support_reply=True, is_internal_note=True, user_id="agent")
+        s = _ticket_summary(_ticket(messages=[note]))
+        assert s["last_visible_message_preview"] is None
+        assert s["last_visible_message_at"] is None
+        assert s["visible_message_count"] == 0
+
+
 # ---------------------------------------------------------------------------
 # Watcher view-permission helper in the router
 # ---------------------------------------------------------------------------
@@ -283,3 +341,101 @@ class TestCanDeleteAttachment:
         # Agents need this to clean up accidental/sensitive uploads.
         from app.routers.support import _can_delete_attachment
         assert _can_delete_attachment(self._att("alice"), self._user("agent"), True)
+
+
+# ---------------------------------------------------------------------------
+# Router payload stripping — what each caller is allowed to see
+# ---------------------------------------------------------------------------
+
+
+def _ticket_payload_with_note(message_count: int = 2) -> dict:
+    """Build a ticket dict shaped like what the service emits, including the
+    last_visible_* scaffolding the router uses to strip internal notes."""
+    return {
+        "uuid": "t-1",
+        "messages": [
+            {"uuid": "m1", "content": "hi", "is_support_reply": False, "is_internal_note": False},
+            {"uuid": "m2", "content": "note", "is_support_reply": True, "is_internal_note": True},
+        ][:message_count],
+        "message_count": message_count,
+        "tags": ["billing", "p1"],
+    }
+
+
+def _summary_payload_with_note() -> dict:
+    return {
+        "uuid": "t-1",
+        "message_count": 2,
+        "visible_message_count": 1,
+        "last_message_preview": "agent note",
+        "last_message_at": "2026-03-05T10:00:00+00:00",
+        "last_message_is_support_reply": True,
+        "last_message_is_internal_note": True,
+        "last_message_user_id": "agent",
+        "last_visible_message_preview": "customer ping",
+        "last_visible_message_at": "2026-03-05T09:00:00+00:00",
+        "last_visible_message_is_support_reply": False,
+        "last_visible_message_user_id": "alice",
+        "tags": ["billing"],
+    }
+
+
+class TestViewStripping:
+    def test_non_support_loses_tags_and_internal_notes_in_detail(self):
+        payload = _ticket_payload_with_note()
+        out = _view(payload, is_support=False)
+        assert "tags" not in out
+        # The internal note is filtered out and message_count reflects the
+        # filtered count so the UI doesn't show a phantom unread.
+        assert [m["uuid"] for m in out["messages"]] == ["m1"]
+        assert out["message_count"] == 1
+
+    def test_non_support_summary_swaps_in_last_visible(self):
+        out = _view(_summary_payload_with_note(), is_support=False)
+        # The "true last" was an internal note, so the requester sees the last
+        # visible message instead — and the scaffolding fields are dropped.
+        assert out["last_message_preview"] == "customer ping"
+        assert out["last_message_is_support_reply"] is False
+        assert out["last_message_user_id"] == "alice"
+        assert out["message_count"] == 1
+        assert "last_message_is_internal_note" not in out
+        assert "last_visible_message_preview" not in out
+        assert "tags" not in out
+
+    def test_support_keeps_tags_and_internal_notes_but_drops_scaffolding(self):
+        payload = _ticket_payload_with_note()
+        out = _view(payload, is_support=True)
+        # Tags and the internal note both stay for agents.
+        assert out["tags"] == ["billing", "p1"]
+        assert [m["uuid"] for m in out["messages"]] == ["m1", "m2"]
+        assert out["message_count"] == 2
+
+    def test_support_summary_keeps_internal_flag_drops_visible_helpers(self):
+        out = _view(_summary_payload_with_note(), is_support=True)
+        # Agents see the absolute-last message and a flag noting it was an
+        # internal note (so the list view can label it). The visible-helpers
+        # were just scaffolding for the stripping path — never leak them.
+        assert out["last_message_preview"] == "agent note"
+        assert out["last_message_is_internal_note"] is True
+        for key in (
+            "last_visible_message_preview",
+            "last_visible_message_at",
+            "last_visible_message_is_support_reply",
+            "last_visible_message_user_id",
+            "visible_message_count",
+        ):
+            assert key not in out
+
+    def test_drop_visible_helpers_is_idempotent(self):
+        payload = {"uuid": "t-1", "last_message_preview": "x"}
+        _drop_visible_helpers(payload)
+        _drop_visible_helpers(payload)
+        assert payload == {"uuid": "t-1", "last_message_preview": "x"}
+
+    def test_strip_for_non_support_handles_summary_without_messages(self):
+        # Summaries don't carry the messages list; the stripper must still
+        # produce a clean payload for the requester.
+        out = _strip_for_non_support(_summary_payload_with_note())
+        assert "messages" not in out
+        assert "tags" not in out
+        assert out["last_message_preview"] == "customer ping"

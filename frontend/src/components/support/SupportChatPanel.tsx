@@ -8,6 +8,7 @@ import {
   Clock,
   Eye,
   Loader2,
+  Lock,
   MessageSquare,
   Paperclip,
   Pencil,
@@ -432,6 +433,7 @@ function ChatView({
   const [ticket, setTicket] = useState<SupportTicket | null>(null)
   const [loading, setLoading] = useState(true)
   const [message, setMessage] = useState('')
+  const [isInternalNote, setIsInternalNote] = useState(false)
   const [sending, setSending] = useState(false)
   const [updatingStatus, setUpdatingStatus] = useState(false)
   const [previewAttachment, setPreviewAttachment] = useState<import('../../types/support').SupportAttachment | null>(null)
@@ -471,9 +473,12 @@ function ChatView({
     if (!message.trim() || sending) return
     setSending(true)
     try {
-      const updated = await supportApi.addMessage(ticketUuid, message.trim())
+      const updated = await supportApi.addMessage(ticketUuid, message.trim(), {
+        isInternalNote,
+      })
       setTicket(updated)
       setMessage('')
+      setIsInternalNote(false)
       onTicketUpdated()
     } catch {
       toast('Failed to send message', 'error')
@@ -674,20 +679,36 @@ function ChatView({
       <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
         {ticket.messages.map((msg) => {
           const isMe = msg.user_id === user?.user_id
+          const isInternal = msg.is_internal_note
           const isEditing = editingMessageUuid === msg.uuid
           const msgAttachments = ticket.attachments.filter(a => a.message_uuid === msg.uuid)
+          // Internal notes span the full row with a yellow card so agents
+          // never confuse them with a real reply to the requester.
+          const wrapperClass = isInternal
+            ? 'group flex flex-col items-stretch'
+            : `group flex flex-col ${isMe ? 'items-end' : 'items-start'}`
+          const bubbleClass = isInternal
+            ? 'w-full rounded-xl border border-dashed border-yellow-500 bg-yellow-100 px-3 py-2 text-yellow-900'
+            : `max-w-[85%] rounded-xl px-3 py-2 ${
+                isMe ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-900'
+              }`
           return (
-            <div key={msg.uuid} className={`group flex flex-col ${isMe ? 'items-end' : 'items-start'}`}>
-              <div
-                className={`max-w-[85%] rounded-xl px-3 py-2 ${
-                  isMe
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-gray-100 text-gray-900'
-                }`}
-              >
-                {!isMe && (
+            <div key={msg.uuid} className={wrapperClass}>
+              <div className={bubbleClass}>
+                {isInternal && (
+                  <p className="mb-1 inline-flex items-center gap-1 rounded bg-yellow-300 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-yellow-900">
+                    <Lock className="h-2.5 w-2.5" />
+                    Internal note
+                  </p>
+                )}
+                {!isMe && !isInternal && (
                   <p className="mb-0.5 text-[10px] font-medium text-gray-500">
                     {msg.user_name || 'Support'}
+                  </p>
+                )}
+                {isInternal && (
+                  <p className="mb-0.5 text-[10px] font-medium text-yellow-800">
+                    {msg.user_name || msg.user_id}
                   </p>
                 )}
                 {isEditing ? (
@@ -707,20 +728,32 @@ function ChatView({
                         }
                       }}
                       rows={Math.min(8, Math.max(2, editDraft.split('\n').length))}
-                      className="resize-none rounded-md px-2 py-1 text-sm text-gray-900 bg-white/95 focus:outline-none focus:ring-2 focus:ring-blue-300"
+                      className={
+                        isInternal
+                          ? 'resize-none rounded-md px-2 py-1 text-sm text-gray-900 bg-white border border-yellow-400 focus:outline-none focus:ring-2 focus:ring-yellow-400'
+                          : 'resize-none rounded-md px-2 py-1 text-sm text-gray-900 bg-white/95 focus:outline-none focus:ring-2 focus:ring-blue-300'
+                      }
                     />
                     <div className="flex items-center justify-end gap-1">
                       <button
                         onClick={cancelEdit}
                         disabled={savingEdit}
-                        className="rounded px-2 py-0.5 text-[11px] font-medium text-white/90 hover:bg-white/10 disabled:opacity-50"
+                        className={
+                          isInternal
+                            ? 'rounded px-2 py-0.5 text-[11px] font-medium text-yellow-900 hover:bg-yellow-200 disabled:opacity-50'
+                            : 'rounded px-2 py-0.5 text-[11px] font-medium text-white/90 hover:bg-white/10 disabled:opacity-50'
+                        }
                       >
                         Cancel
                       </button>
                       <button
                         onClick={saveEdit}
                         disabled={savingEdit || !editDraft.trim()}
-                        className="inline-flex items-center gap-1 rounded bg-white/20 px-2 py-0.5 text-[11px] font-medium text-white hover:bg-white/30 disabled:opacity-50"
+                        className={
+                          isInternal
+                            ? 'inline-flex items-center gap-1 rounded bg-yellow-500 px-2 py-0.5 text-[11px] font-medium text-white hover:bg-yellow-600 disabled:opacity-50'
+                            : 'inline-flex items-center gap-1 rounded bg-white/20 px-2 py-0.5 text-[11px] font-medium text-white hover:bg-white/30 disabled:opacity-50'
+                        }
                       >
                         {savingEdit ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
                         Save
@@ -730,7 +763,7 @@ function ChatView({
                 ) : (
                   <p className="whitespace-pre-wrap text-sm">{msg.content}</p>
                 )}
-                <p className={`mt-1 text-[10px] ${isMe ? 'text-blue-200' : 'text-gray-400'}`}>
+                <p className={`mt-1 text-[10px] ${isInternal ? 'text-yellow-800' : (isMe ? 'text-blue-200' : 'text-gray-400')}`}>
                   {timeAgo(msg.created_at)}
                   {msg.edited_at && <span className="ml-1 italic">(edited)</span>}
                 </p>
@@ -823,7 +856,29 @@ function ChatView({
       )}
 
       {/* Input */}
-      <div className="border-t px-3 py-2">
+      <div className={`border-t px-3 py-2 ${isInternalNote ? 'bg-yellow-100' : ''}`}>
+        {isSupportAgent && (
+          <div className="mb-1.5 flex items-center justify-between">
+            <button
+              type="button"
+              onClick={() => setIsInternalNote((v) => !v)}
+              title={isInternalNote
+                ? 'Only other support agents will see this'
+                : 'Switch to an internal note — visible only to support agents'}
+              className={
+                isInternalNote
+                  ? 'inline-flex items-center gap-1 rounded-full border border-yellow-500 bg-yellow-200 px-2 py-0.5 text-[10px] font-semibold text-yellow-900'
+                  : 'inline-flex items-center gap-1 rounded-full border border-gray-300 px-2 py-0.5 text-[10px] font-semibold text-gray-500 hover:border-yellow-400 hover:text-yellow-700'
+              }
+            >
+              <Lock className="h-2.5 w-2.5" />
+              {isInternalNote ? 'Internal note' : 'Add internal note'}
+            </button>
+            {isInternalNote && (
+              <span className="text-[10px] italic text-yellow-800">Hidden from requester</span>
+            )}
+          </div>
+        )}
         <div className="flex items-end gap-1.5">
           <button
             onClick={() => fileInputRef.current?.click()}
@@ -837,16 +892,34 @@ function ChatView({
             value={message}
             onChange={(e) => setMessage(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder={ticket.status === 'closed' ? 'Reply to reopen...' : 'Type a message...'}
+            placeholder={
+              ticket.status === 'closed'
+                ? 'Reply to reopen...'
+                : isInternalNote
+                  ? 'Leave a note for other agents...'
+                  : 'Type a message...'
+            }
             rows={1}
-            className="flex-1 resize-none rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none"
+            className={`flex-1 resize-none rounded-lg px-3 py-1.5 text-sm focus:outline-none ${
+              isInternalNote
+                ? 'border border-yellow-400 bg-white focus:border-yellow-500'
+                : 'border border-gray-300 focus:border-blue-500'
+            }`}
           />
           <button
             onClick={handleSend}
             disabled={!message.trim() || sending}
-            className="rounded-lg bg-blue-600 p-1.5 text-white hover:bg-blue-700 disabled:opacity-50"
+            className={`rounded-lg p-1.5 text-white disabled:opacity-50 ${
+              isInternalNote ? 'bg-yellow-600 hover:bg-yellow-700' : 'bg-blue-600 hover:bg-blue-700'
+            }`}
           >
-            {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+            {sending ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : isInternalNote ? (
+              <Lock className="h-4 w-4" />
+            ) : (
+              <Send className="h-4 w-4" />
+            )}
           </button>
         </div>
       </div>

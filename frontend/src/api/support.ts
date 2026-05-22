@@ -54,10 +54,17 @@ export function getTicket(ticketUuid: string) {
   return apiFetch<SupportTicket>(`/api/support/tickets/${ticketUuid}`)
 }
 
-export function addMessage(ticketUuid: string, content: string) {
+export function addMessage(
+  ticketUuid: string,
+  content: string,
+  options: { isInternalNote?: boolean } = {},
+) {
   return apiFetch<SupportTicket>(`/api/support/tickets/${ticketUuid}/messages`, {
     method: 'POST',
-    body: JSON.stringify({ content }),
+    body: JSON.stringify({
+      content,
+      is_internal_note: options.isInternalNote ?? false,
+    }),
   })
 }
 

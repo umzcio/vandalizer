@@ -23,6 +23,9 @@ router = APIRouter()
 
 class AddMessageRequest(BaseModel):
     content: str
+    # Support agents may flag a message as an internal note — visible only to
+    # other support agents. Ignored (forced False) for non-support callers.
+    is_internal_note: bool = False
 
 
 class EditMessageRequest(BaseModel):
@@ -44,6 +47,67 @@ def _strip_tags(payload: dict) -> dict:
     """Remove the internal-only tags field — non-support callers must not see it."""
     payload.pop("tags", None)
     return payload
+
+
+# Summary fields used purely as scaffolding for stripping internal notes —
+# the router consumes them and never returns them to any caller.
+_VISIBLE_HELPER_FIELDS = (
+    "last_visible_message_preview",
+    "last_visible_message_at",
+    "last_visible_message_is_support_reply",
+    "last_visible_message_user_id",
+    "visible_message_count",
+)
+
+
+def _drop_visible_helpers(payload: dict) -> dict:
+    """Remove the ``last_visible_*`` helper fields from a summary."""
+    for k in _VISIBLE_HELPER_FIELDS:
+        payload.pop(k, None)
+    return payload
+
+
+def _strip_internal_notes(payload: dict) -> dict:
+    """Hide internal notes from non-support callers.
+
+    Operates on both full ticket dicts (filters ``messages``) and list
+    summaries (swaps in the ``last_visible_message_*`` fields so the list
+    view doesn't show a phantom "just now" timestamp pointing at an
+    invisible note). Mutates and returns ``payload`` for chaining.
+    """
+    if "messages" in payload:
+        payload["messages"] = [
+            m for m in payload["messages"] if not m.get("is_internal_note")
+        ]
+        payload["message_count"] = len(payload["messages"])
+
+    if payload.get("last_message_is_internal_note"):
+        payload["last_message_preview"] = payload.get("last_visible_message_preview")
+        payload["last_message_at"] = payload.get("last_visible_message_at")
+        payload["last_message_is_support_reply"] = payload.get(
+            "last_visible_message_is_support_reply"
+        )
+        payload["last_message_user_id"] = payload.get("last_visible_message_user_id")
+    if "visible_message_count" in payload:
+        payload["message_count"] = payload["visible_message_count"]
+    payload.pop("last_message_is_internal_note", None)
+    return _drop_visible_helpers(payload)
+
+
+def _strip_for_non_support(payload: dict) -> dict:
+    """Compose the support-only filters: drop tags and internal notes."""
+    _strip_tags(payload)
+    _strip_internal_notes(payload)
+    return payload
+
+
+def _view(payload: dict, is_support: bool) -> dict:
+    """Final pass on a response payload: support callers see everything (with
+    the internal-only scaffolding fields dropped); non-support callers also
+    get tags and internal notes stripped."""
+    if is_support:
+        return _drop_visible_helpers(payload)
+    return _strip_for_non_support(payload)
 
 
 def _can_view_ticket(ticket: dict, user: User, is_support: bool) -> bool:
@@ -114,7 +178,7 @@ async def create_ticket(
     is_support = await _is_support_user(user)
 
     if not file_payloads:
-        return ticket if is_support else _strip_tags(ticket)
+        return _view(ticket, is_support)
 
     initial_message_uuid = ticket["messages"][0]["uuid"] if ticket.get("messages") else None
     for filename, content_type, data in file_payloads:
@@ -129,7 +193,7 @@ async def create_ticket(
         if result is not None:
             ticket = result
 
-    return ticket if is_support else _strip_tags(ticket)
+    return _view(ticket, is_support)
 
 
 @router.get("/tickets")
@@ -174,8 +238,7 @@ async def list_tickets(
             category=effective_category, search=search,
             limit=limit, offset=offset,
         )
-    if not is_support:
-        tickets = [_strip_tags(t) for t in tickets]
+    tickets = [_view(t, is_support) for t in tickets]
     return {"tickets": tickets}
 
 
@@ -193,9 +256,7 @@ async def get_ticket(
     if not _can_view_ticket(ticket, user, is_support):
         raise HTTPException(status_code=403, detail="Not authorized")
 
-    if not is_support:
-        _strip_tags(ticket)
-    return ticket
+    return _view(ticket, is_support)
 
 
 @router.post("/tickets/{ticket_uuid}/read")
@@ -225,15 +286,22 @@ async def add_message(
     if not _can_view_ticket(ticket_data, user, is_support):
         raise HTTPException(status_code=403, detail="Not authorized")
 
+    # Internal notes are agent-only. Silently force False for non-agents and
+    # for an agent writing on their own ticket (where they're acting as the
+    # requester).
+    is_owner = ticket_data["user_id"] == user.user_id
+    is_internal_note = body.is_internal_note and is_support and not is_owner
+
     result = await support_service.add_message(
         ticket_uuid=ticket_uuid,
         user=user,
         content=body.content,
-        is_support_reply=is_support and ticket_data["user_id"] != user.user_id,
+        is_support_reply=is_support and not is_owner,
+        is_internal_note=is_internal_note,
     )
     if not result:
         raise HTTPException(status_code=404, detail="Ticket not found")
-    return result if is_support else _strip_tags(result)
+    return _view(result, is_support)
 
 
 @router.patch("/tickets/{ticket_uuid}/messages/{message_uuid}")
@@ -264,7 +332,7 @@ async def edit_message(
         raise HTTPException(status_code=status_code, detail=error)
     if not result:
         raise HTTPException(status_code=404, detail="Ticket not found")
-    return result if is_support else _strip_tags(result)
+    return _view(result, is_support)
 
 
 @router.post("/tickets/{ticket_uuid}/attachments")
@@ -312,7 +380,7 @@ async def add_attachment(
         if not result:
             raise HTTPException(status_code=404, detail="Ticket not found")
     assert result is not None  # `files` is non-empty by the check above
-    return result if is_support else _strip_tags(result)
+    return _view(result, is_support)
 
 
 @router.delete("/tickets/{ticket_uuid}/attachments/{attachment_uuid}")
@@ -353,7 +421,7 @@ async def delete_attachment(
     if removed is None:
         # Race: attachment was already gone between the check and delete.
         raise HTTPException(status_code=404, detail="Attachment not found")
-    return result if is_support else _strip_tags(result)
+    return _view(result, is_support)
 
 
 @router.get("/tickets/{ticket_uuid}/attachments/{attachment_uuid}")
@@ -420,7 +488,7 @@ async def update_ticket(
     )
     if not result:
         raise HTTPException(status_code=404, detail="Ticket not found")
-    return result
+    return _view(result, is_support)
 
 
 @router.post("/tickets/{ticket_uuid}/watchers")
@@ -450,7 +518,7 @@ async def add_watcher(
         raise HTTPException(status_code=400, detail=error)
     if not result:
         raise HTTPException(status_code=404, detail="Ticket not found")
-    return result if is_support else _strip_tags(result)
+    return _view(result, is_support)
 
 
 @router.delete("/tickets/{ticket_uuid}/watchers/{watcher_user_id}")
@@ -475,7 +543,7 @@ async def remove_watcher(
     )
     if not result:
         raise HTTPException(status_code=404, detail="Ticket not found")
-    return result if is_support else _strip_tags(result)
+    return _view(result, is_support)
 
 
 @router.get("/stats")

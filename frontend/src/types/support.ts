@@ -4,6 +4,10 @@ export interface SupportMessage {
   user_name: string | null
   content: string
   is_support_reply: boolean
+  // Internal notes are visible only to support agents. The backend strips
+  // these from the messages array for everyone else, so non-agent callers
+  // will never receive a message with this set to true.
+  is_internal_note: boolean
   created_at: string | null
   edited_at: string | null
 }
@@ -67,6 +71,7 @@ export interface SupportTicketSummary {
   last_message_preview: string | null
   last_message_at: string | null
   last_message_is_support_reply: boolean | null
+  last_message_is_internal_note?: boolean | null
   last_message_user_id: string | null
   read_by: string[]
   created_at: string | null

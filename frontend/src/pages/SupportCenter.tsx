@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback, useRef } from 'react'
 import { Navigate, useNavigate, useSearch } from '@tanstack/react-router'
 import {
   ArrowLeft, Check, MessageSquare, Send, Plus, Paperclip, Pencil, X, Loader2, Link2, Tag,
-  Eye, UserPlus, Search, Flag,
+  Eye, UserPlus, Search, Flag, Lock,
 } from 'lucide-react'
 import { PageLayout } from '../components/layout/PageLayout'
 import { useAuth } from '../hooks/useAuth'
@@ -448,6 +448,18 @@ function ListView({
                     </div>
                     <div style={{ fontSize: 12, color: '#9ca3af', marginTop: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {t.user_name || t.user_id} &middot; {t.message_count} message{t.message_count !== 1 ? 's' : ''}
+                      {t.last_message_is_internal_note && (
+                        <span
+                          style={{
+                            marginLeft: 6, padding: '0 5px', borderRadius: 4,
+                            background: '#fde68a', color: '#78350f',
+                            fontSize: 10, fontWeight: 700, letterSpacing: 0.3,
+                          }}
+                          title="Last activity was an internal note"
+                        >
+                          INTERNAL
+                        </span>
+                      )}
                       {t.last_message_preview ? ` — ${t.last_message_preview}` : ''}
                     </div>
                   </div>
@@ -661,6 +673,7 @@ function ChatView({
   const [ticket, setTicket] = useState<SupportTicket | null>(null)
   const [loading, setLoading] = useState(true)
   const [reply, setReply] = useState('')
+  const [isInternalNote, setIsInternalNote] = useState(false)
   const [sending, setSending] = useState(false)
   const [previewAttachment, setPreviewAttachment] = useState<SupportAttachment | null>(null)
   const [editingMessageUuid, setEditingMessageUuid] = useState<string | null>(null)
@@ -695,9 +708,12 @@ function ChatView({
     if (!reply.trim() || sending) return
     setSending(true)
     try {
-      const updated = await supportApi.addMessage(ticketUuid, reply.trim())
+      const updated = await supportApi.addMessage(ticketUuid, reply.trim(), {
+        isInternalNote: isInternalNote,
+      })
       setTicket(updated)
       setReply('')
+      setIsInternalNote(false)
     } catch {
       toast('Failed to send message', 'error')
     } finally {
@@ -911,19 +927,43 @@ function ChatView({
         <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 12, maxHeight: 520, overflowY: 'auto' }}>
           {ticket.messages.map((m) => {
             const isSupport = m.is_support_reply
+            const isInternal = m.is_internal_note
             const isMine = m.user_id === user?.user_id
             const isEditing = editingMessageUuid === m.uuid
             const msgAttachments = ticket.attachments.filter((a) => a.message_uuid === m.uuid)
+            // Internal notes get a distinct yellow card and span full width so
+            // agents can't miss them when scanning the conversation.
+            const bubbleAlign = isInternal ? 'stretch' : (isSupport ? 'flex-end' : 'flex-start')
+            const bubbleBg = isInternal ? '#fef9c3' : (isSupport ? '#2563eb' : '#f3f4f6')
+            const bubbleColor = isInternal ? '#713f12' : (isSupport ? '#fff' : '#111827')
+            const bubbleBorder = isInternal ? '1px dashed #ca8a04' : 'none'
+            const bubbleMaxWidth = isInternal ? '100%' : '85%'
+            const labelColor = isInternal
+              ? '#92400e'
+              : (isSupport ? 'rgba(255,255,255,0.85)' : '#6b7280')
             return (
-              <div key={m.uuid} style={{ display: 'flex', flexDirection: 'column', alignItems: isSupport ? 'flex-end' : 'flex-start' }}>
+              <div key={m.uuid} style={{ display: 'flex', flexDirection: 'column', alignItems: bubbleAlign }}>
                 <div style={{
-                  maxWidth: '85%', padding: '10px 14px', borderRadius: 'var(--ui-radius, 12px)',
-                  background: isSupport ? '#2563eb' : '#f3f4f6',
-                  color: isSupport ? '#fff' : '#111827',
+                  maxWidth: bubbleMaxWidth, padding: '10px 14px', borderRadius: 'var(--ui-radius, 12px)',
+                  background: bubbleBg, color: bubbleColor, border: bubbleBorder,
+                  width: isInternal ? '100%' : undefined,
                 }}>
-                  <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 4, color: isSupport ? 'rgba(255,255,255,0.85)' : '#6b7280' }}>
-                    {m.user_name || m.user_id}
-                    {isSupport && <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 500, opacity: 0.85 }}>Support</span>}
+                  <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 4, color: labelColor, display: 'flex', alignItems: 'center', gap: 6 }}>
+                    {isInternal && (
+                      <span
+                        style={{
+                          display: 'inline-flex', alignItems: 'center', gap: 3,
+                          padding: '1px 6px', fontSize: 10, fontWeight: 700,
+                          textTransform: 'uppercase', letterSpacing: 0.3,
+                          background: '#fde68a', color: '#78350f', borderRadius: 4,
+                        }}
+                        title="Visible only to support agents"
+                      >
+                        <Lock size={10} /> Internal note
+                      </span>
+                    )}
+                    <span>{m.user_name || m.user_id}</span>
+                    {isSupport && !isInternal && <span style={{ fontSize: 10, fontWeight: 500, opacity: 0.85 }}>Support</span>}
                   </div>
                   {isEditing ? (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -945,7 +985,7 @@ function ChatView({
                         style={{
                           fontSize: 14, padding: '6px 8px', borderRadius: 6,
                           border: '1px solid rgba(0,0,0,0.1)', resize: 'vertical',
-                          background: isSupport ? 'rgba(255,255,255,0.95)' : '#fff',
+                          background: isInternal ? '#fff' : (isSupport ? 'rgba(255,255,255,0.95)' : '#fff'),
                           color: '#111827', fontFamily: 'inherit', minWidth: 280,
                         }}
                       />
@@ -957,7 +997,7 @@ function ChatView({
                             padding: '2px 8px', fontSize: 11, fontWeight: 600,
                             borderRadius: 6, border: 'none', cursor: 'pointer',
                             background: 'transparent',
-                            color: isSupport ? 'rgba(255,255,255,0.85)' : '#6b7280',
+                            color: isInternal ? '#92400e' : (isSupport ? 'rgba(255,255,255,0.85)' : '#6b7280'),
                             opacity: savingEdit ? 0.5 : 1,
                           }}
                         >
@@ -970,7 +1010,7 @@ function ChatView({
                             display: 'inline-flex', alignItems: 'center', gap: 3,
                             padding: '2px 10px', fontSize: 11, fontWeight: 600,
                             borderRadius: 6, border: 'none', cursor: 'pointer',
-                            background: isSupport ? 'rgba(255,255,255,0.25)' : '#2563eb',
+                            background: isInternal ? '#ca8a04' : (isSupport ? 'rgba(255,255,255,0.25)' : '#2563eb'),
                             color: '#fff',
                             opacity: (savingEdit || !editDraft.trim()) ? 0.5 : 1,
                           }}
@@ -987,7 +1027,7 @@ function ChatView({
                   ) : (
                     <div style={{ fontSize: 14, whiteSpace: 'pre-wrap' }}>{m.content}</div>
                   )}
-                  <div style={{ fontSize: 10, marginTop: 4, color: isSupport ? 'rgba(255,255,255,0.75)' : '#9ca3af' }}>
+                  <div style={{ fontSize: 10, marginTop: 4, color: isInternal ? '#a16207' : (isSupport ? 'rgba(255,255,255,0.75)' : '#9ca3af') }}>
                     {timeAgo(m.created_at)}
                     {m.edited_at && <span style={{ marginLeft: 4, fontStyle: 'italic' }}>(edited)</span>}
                   </div>
@@ -1048,38 +1088,73 @@ function ChatView({
 
         {/* Reply input */}
         {ticket.status !== 'closed' ? (
-          <div style={{ padding: '12px 20px', borderTop: '1px solid #e5e7eb', display: 'flex', gap: 8, alignItems: 'center' }}>
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              title="Attach file"
-              style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6b7280', padding: 4 }}
-            >
-              <Paperclip size={16} />
-            </button>
-            <input ref={fileInputRef} type="file" multiple onChange={handleFileUpload} style={{ display: 'none' }} />
-            <input
-              value={reply}
-              onChange={(e) => setReply(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() } }}
-              placeholder="Reply as support..."
-              style={{
-                flex: 1, padding: '8px 12px', fontSize: 14,
-                border: '1px solid #d1d5db', borderRadius: 'var(--ui-radius, 12px)', outline: 'none',
-              }}
-            />
-            <button
-              onClick={handleSend}
-              disabled={sending || !reply.trim()}
-              style={{
-                display: 'inline-flex', alignItems: 'center', gap: 4,
-                padding: '8px 14px', borderRadius: 'var(--ui-radius, 12px)', border: 'none',
-                background: '#2563eb', color: '#fff', fontSize: 13, fontWeight: 600,
-                cursor: reply.trim() && !sending ? 'pointer' : 'not-allowed',
-                opacity: sending ? 0.6 : 1,
-              }}
-            >
-              <Send size={14} /> {sending ? 'Sending...' : 'Reply'}
-            </button>
+          <div style={{
+            padding: '12px 20px', borderTop: '1px solid #e5e7eb',
+            display: 'flex', flexDirection: 'column', gap: 8,
+            background: isInternalNote ? '#fef9c3' : undefined,
+            transition: 'background 120ms ease',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+              <button
+                type="button"
+                onClick={() => setIsInternalNote((v) => !v)}
+                title={isInternalNote
+                  ? 'This will only be visible to other support agents'
+                  : 'Switch to an internal note — visible only to support agents'}
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 6,
+                  padding: '4px 10px', borderRadius: 999, cursor: 'pointer',
+                  border: isInternalNote ? '1px solid #ca8a04' : '1px solid #d1d5db',
+                  background: isInternalNote ? '#fde68a' : '#fff',
+                  color: isInternalNote ? '#78350f' : '#6b7280',
+                  fontSize: 12, fontWeight: 600, fontFamily: 'inherit',
+                }}
+              >
+                <Lock size={12} />
+                {isInternalNote ? 'Internal note (agents only)' : 'Internal note'}
+              </button>
+              {isInternalNote && (
+                <span style={{ fontSize: 11, color: '#92400e', fontStyle: 'italic' }}>
+                  The requester will not see this message.
+                </span>
+              )}
+            </div>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                title="Attach file"
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6b7280', padding: 4 }}
+              >
+                <Paperclip size={16} />
+              </button>
+              <input ref={fileInputRef} type="file" multiple onChange={handleFileUpload} style={{ display: 'none' }} />
+              <input
+                value={reply}
+                onChange={(e) => setReply(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() } }}
+                placeholder={isInternalNote ? 'Leave a note for other agents...' : 'Reply as support...'}
+                style={{
+                  flex: 1, padding: '8px 12px', fontSize: 14,
+                  border: isInternalNote ? '1px solid #ca8a04' : '1px solid #d1d5db',
+                  borderRadius: 'var(--ui-radius, 12px)', outline: 'none',
+                  background: '#fff',
+                }}
+              />
+              <button
+                onClick={handleSend}
+                disabled={sending || !reply.trim()}
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 4,
+                  padding: '8px 14px', borderRadius: 'var(--ui-radius, 12px)', border: 'none',
+                  background: isInternalNote ? '#ca8a04' : '#2563eb', color: '#fff', fontSize: 13, fontWeight: 600,
+                  cursor: reply.trim() && !sending ? 'pointer' : 'not-allowed',
+                  opacity: sending ? 0.6 : 1,
+                }}
+              >
+                {isInternalNote ? <Lock size={14} /> : <Send size={14} />}
+                {sending ? 'Sending...' : (isInternalNote ? 'Add Note' : 'Reply')}
+              </button>
+            </div>
           </div>
         ) : (
           <div style={{ padding: '12px 20px', borderTop: '1px solid #e5e7eb', fontSize: 13, color: '#6b7280', textAlign: 'center' }}>

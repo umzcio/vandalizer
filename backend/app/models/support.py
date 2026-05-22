@@ -29,6 +29,10 @@ class SupportMessage(BaseModel):
     user_name: Optional[str] = None
     content: str
     is_support_reply: bool = False
+    # Internal notes are written by support agents to coordinate with each
+    # other on a ticket. They are never returned to the ticket owner or to
+    # non-support watchers, and don't notify or email the requester.
+    is_internal_note: bool = False
     created_at: datetime.datetime = Field(
         default_factory=lambda: datetime.datetime.now(datetime.timezone.utc)
     )
