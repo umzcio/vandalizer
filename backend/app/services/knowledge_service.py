@@ -32,6 +32,47 @@ def _get_dm() -> DocumentManager:
     return _dm
 
 
+def build_kb_list_query(
+    user_id: str,
+    team_id: str | None,
+    scope: str | None,
+    search: str | None,
+) -> dict | None:
+    """Build the mongo query for listing knowledge bases.
+
+    Returns None when the requested scope is impossible (e.g. "team" with no team).
+    team_owned KBs are excluded from the "mine" surface — they live in Team
+    Library only, even for their original creator.
+    """
+    if scope == "mine":
+        query: dict = {"user_id": user_id, "team_owned": {"$ne": True}}
+    elif scope == "team":
+        if not team_id:
+            return None
+        query = {"shared_with_team": True, "team_id": team_id}
+    elif scope == "verified":
+        query = {"verified": True}
+    else:
+        or_clauses: list[dict] = [
+            {"user_id": user_id, "team_owned": {"$ne": True}},
+            {"verified": True},
+        ]
+        if team_id:
+            or_clauses.append({"shared_with_team": True, "team_id": team_id})
+        query = {"$or": or_clauses}
+
+    if search:
+        pattern = re.escape(search)
+        query = {"$and": [
+            query,
+            {"$or": [
+                {"title": {"$regex": pattern, "$options": "i"}},
+                {"description": {"$regex": pattern, "$options": "i"}},
+            ]},
+        ]}
+    return query
+
+
 async def list_knowledge_bases(
     user_id: str,
     team_id: str | None = None,
@@ -47,34 +88,9 @@ async def list_knowledge_bases(
     Returns ``(items, total)`` where *total* is the unscoped count before
     skip/limit (for pagination metadata).
     """
-    # Build the base query depending on scope
-    if scope == "mine":
-        query = {"user_id": user_id}
-    elif scope == "team":
-        if not team_id:
-            return [], 0
-        query = {"shared_with_team": True, "team_id": team_id}
-    elif scope == "verified":
-        query = {"verified": True}
-    else:
-        # No scope filter — return everything the user can see (original behaviour)
-        or_clauses: list[dict] = [
-            {"user_id": user_id},
-            {"verified": True},
-        ]
-        if team_id:
-            or_clauses.append({"shared_with_team": True, "team_id": team_id})
-        query = {"$or": or_clauses}
-
-    # Text search on title / description
-    if search:
-        pattern = re.escape(search)
-        search_filter = {"$or": [
-            {"title": {"$regex": pattern, "$options": "i"}},
-            {"description": {"$regex": pattern, "$options": "i"}},
-        ]}
-        # Merge with existing query
-        query = {"$and": [query, search_filter]}
+    query = build_kb_list_query(user_id, team_id, scope, search)
+    if query is None:
+        return [], 0
 
     total = await KnowledgeBase.find(query).count()
     kbs = await (
@@ -236,11 +252,50 @@ async def share_with_team(
     return kb
 
 
+class SharedKBDeleteRequiresMode(Exception):
+    """Raised when delete_knowledge_base is called on a shared KB without an explicit mode.
+
+    The caller must choose between transferring ownership to the team (so the KB stays
+    in the Team Library) or unsharing + hard-deleting everywhere.
+    """
+
+
+async def transfer_kb_to_team(
+    uuid: str,
+    user: User,
+    *,
+    user_org_ancestry: list[str] | None = None,
+) -> KnowledgeBase | None:
+    """Mark a KB as team-owned so it disappears from My KBs but stays in Team Library.
+
+    Idempotent. Also ensures shared_with_team is True (a KB cannot be team-owned
+    without being shared).
+    """
+    kb = await get_knowledge_base(
+        uuid,
+        user,
+        manage=True,
+        user_org_ancestry=user_org_ancestry,
+        allow_admin=True,
+    )
+    if not kb:
+        return None
+    if not kb.team_id:
+        # Without a team, "team-owned" has no meaning; treat as configuration error.
+        raise ValueError("Knowledge base has no team_id; cannot transfer to team")
+    kb.shared_with_team = True
+    kb.team_owned = True
+    kb.updated_at = datetime.datetime.now(tz=datetime.timezone.utc)
+    await kb.save()
+    return kb
+
+
 async def delete_knowledge_base(
     uuid: str,
     user: User,
     *,
     user_org_ancestry: list[str] | None = None,
+    force_shared: bool = False,
 ) -> bool:
     kb = await get_knowledge_base(
         uuid,
@@ -251,6 +306,10 @@ async def delete_knowledge_base(
     )
     if not kb:
         return False
+    if kb.shared_with_team and not force_shared:
+        raise SharedKBDeleteRequiresMode(
+            "Knowledge base is shared with team; caller must choose transfer or force-delete",
+        )
     # Delete ChromaDB collection
     try:
         dm = _get_dm()
@@ -380,6 +439,53 @@ async def add_urls(
     return added
 
 
+async def update_source_name(
+    kb: KnowledgeBase,
+    source_uuid: str,
+    custom_name: str | None,
+) -> KnowledgeBaseSource | None:
+    """Set or clear the user-provided label on a single KB source.
+
+    Pass an empty string or None to clear the custom name and fall back to the
+    auto-derived title (document title / url_title / url). Also rewrites the
+    ``source_name`` field on every chunk in ChromaDB so retrieval citations
+    reflect the new label.
+    """
+    source = await KnowledgeBaseSource.find_one(
+        KnowledgeBaseSource.uuid == source_uuid,
+        KnowledgeBaseSource.knowledge_base_uuid == kb.uuid,
+    )
+    if not source:
+        return None
+
+    cleaned = (custom_name or "").strip()
+    source.custom_name = cleaned[:300] if cleaned else None
+    await source.save()
+
+    # Compute the effective display name and sync it into ChromaDB metadata so
+    # retrieval cites the user's chosen label.
+    effective = source.custom_name
+    if not effective:
+        if source.source_type == "url":
+            effective = source.url_title or source.url or "Unknown"
+        else:
+            doc_title = None
+            if source.document_uuid:
+                doc = await SmartDocument.find_one(SmartDocument.uuid == source.document_uuid)
+                if doc:
+                    doc_title = doc.title
+            effective = doc_title or source.document_uuid or "Unknown"
+
+    if source.status == "ready":
+        try:
+            dm = _get_dm()
+            await asyncio.to_thread(dm.rename_kb_source, kb.uuid, source.uuid, effective)
+        except Exception as e:
+            logger.error(f"Error renaming KB source {source.uuid} in ChromaDB: {e}")
+
+    return source
+
+
 async def remove_source(kb: KnowledgeBase, source_uuid: str) -> bool:
     source = await KnowledgeBaseSource.find_one(
         KnowledgeBaseSource.uuid == source_uuid,
@@ -430,6 +536,7 @@ async def clone_knowledge_base(
             document_uuid=src.document_uuid,
             url=src.url,
             url_title=src.url_title,
+            custom_name=src.custom_name,
             content=src.content,  # Copy cached content for URLs
         )
         await new_src.insert()
@@ -442,7 +549,7 @@ async def clone_knowledge_base(
             try:
                 chunk_count = await asyncio.to_thread(
                     dm.add_to_kb, clone.uuid, new_src.uuid,
-                    new_src.url_title or new_src.url or "Unknown", src.content,
+                    new_src.custom_name or new_src.url_title or new_src.url or "Unknown", src.content,
                 )
                 new_src.chunk_count = chunk_count
                 new_src.status = "ready"
@@ -765,6 +872,7 @@ async def export_knowledge_base(kb: KnowledgeBase) -> dict:
             "document_title": document_title,
             "url": s.url,
             "url_title": s.url_title,
+            "custom_name": s.custom_name,
             "content": content,
             "crawl_enabled": s.crawl_enabled,
             "max_crawl_pages": s.max_crawl_pages,
@@ -819,6 +927,7 @@ async def import_knowledge_base(
             document_uuid=src.get("document_uuid"),
             url=(src.get("url") or None),
             url_title=src.get("url_title"),
+            custom_name=src.get("custom_name"),
             content=content,
             crawl_enabled=bool(src.get("crawl_enabled", False)),
             max_crawl_pages=int(src.get("max_crawl_pages") or 5),
@@ -830,7 +939,8 @@ async def import_knowledge_base(
 
         if content and content.strip():
             label = (
-                src.get("document_title")
+                new_src.custom_name
+                or src.get("document_title")
                 or new_src.url_title
                 or new_src.url
                 or "Imported Source"
@@ -892,28 +1002,6 @@ async def _ingest_document_source(source: KnowledgeBaseSource, kb: KnowledgeBase
         await source.save()
 
 
-def _extract_text_from_html(html: str) -> str:
-    """Extract clean text from HTML using BeautifulSoup."""
-    soup = BeautifulSoup(html, "html.parser")
-    # Remove non-content elements
-    for tag in soup.find_all(["script", "style", "nav", "footer", "header", "aside", "form"]):
-        tag.decompose()
-    text = soup.get_text(separator="\n")
-    # Clean up whitespace
-    text = re.sub(r"[ \t]+", " ", text)
-    text = re.sub(r"\n{3,}", "\n\n", text)
-    return text.strip()
-
-
-def _extract_title_from_html(html: str, url: str) -> str:
-    """Extract page title from HTML."""
-    soup = BeautifulSoup(html, "html.parser")
-    if soup.title and soup.title.string:
-        return soup.title.string.strip()[:200]
-    from urllib.parse import urlparse
-    return urlparse(url).netloc
-
-
 async def _ingest_url_source(
     source: KnowledgeBaseSource, kb: KnowledgeBase,
 ) -> str | None:
@@ -921,15 +1009,12 @@ async def _ingest_url_source(
     source.status = "processing"
     await source.save()
     try:
-        from app.utils.url_validation import validate_outbound_url
+        from app.services.web_fetcher import fetch_url
 
-        validate_outbound_url(source.url)
-        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
-            resp = await client.get(source.url)
-            resp.raise_for_status()
-            raw_html = resp.text[:500000]
+        result = await fetch_url(source.url)
+        raw_html = result.raw_html or ""
+        raw_text = result.text
 
-        raw_text = _extract_text_from_html(raw_html)
         if not raw_text.strip():
             source.status = "error"
             source.error_message = "Failed to extract text from URL"
@@ -937,7 +1022,7 @@ async def _ingest_url_source(
             return None
 
         source.content = raw_text[:500000]
-        source.url_title = _extract_title_from_html(raw_html, source.url)
+        source.url_title = result.title
 
         dm = _get_dm()
         chunk_count = await asyncio.to_thread(

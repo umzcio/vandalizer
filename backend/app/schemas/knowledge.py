@@ -45,12 +45,19 @@ class KBSourceResponse(BaseModel):
     uuid: str
     source_type: str
     document_uuid: Optional[str] = None
+    document_title: Optional[str] = None  # filename, looked up at response time
     url: Optional[str] = None
     url_title: Optional[str] = None
+    custom_name: Optional[str] = None  # user-provided label; UI prefers this over title/url
     status: str
     error_message: Optional[str] = None
     chunk_count: int = 0
     created_at: Optional[str] = None
+
+
+class UpdateSourceRequest(BaseModel):
+    """Patch a single KB source. Empty string clears the custom name."""
+    custom_name: Optional[str] = None
 
 
 class KBResponse(BaseModel):
@@ -59,6 +66,7 @@ class KBResponse(BaseModel):
     description: Optional[str] = None
     status: str
     shared_with_team: bool = False
+    team_owned: bool = False
     verified: bool = False
     organization_ids: list[str] = []
     total_sources: int = 0
@@ -120,6 +128,7 @@ class KBExportSource(BaseModel):
     document_title: Optional[str] = None  # snapshot of SmartDocument.title at export time
     url: Optional[str] = None
     url_title: Optional[str] = None
+    custom_name: Optional[str] = None  # user's chosen label, carried across export/import
     content: Optional[str] = None  # cached raw text (for URLs) or document raw_text (for docs)
     crawl_enabled: bool = False
     max_crawl_pages: int = 5

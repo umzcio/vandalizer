@@ -249,6 +249,7 @@ def _mock_kb(**overrides):
     kb.description = overrides.get("description", "A test knowledge base")
     kb.status = overrides.get("status", "ready")
     kb.shared_with_team = overrides.get("shared_with_team", False)
+    kb.team_owned = overrides.get("team_owned", False)
     kb.verified = overrides.get("verified", False)
     kb.organization_ids = overrides.get("organization_ids", [])
     kb.total_sources = overrides.get("total_sources", 2)
@@ -272,6 +273,7 @@ def _mock_source(**overrides):
     s.document_uuid = overrides.get("document_uuid", "doc-1")
     s.url = overrides.get("url", None)
     s.url_title = overrides.get("url_title", None)
+    s.custom_name = overrides.get("custom_name", None)
     s.status = overrides.get("status", "ready")
     s.error_message = overrides.get("error_message", None)
     s.chunk_count = overrides.get("chunk_count", 50)
@@ -411,6 +413,13 @@ class TestKnowledgeCRUD:
             patch("app.dependencies.User") as MockUser,
             patch("app.routers.knowledge.svc") as mock_svc,
             patch("app.routers.knowledge.organization_service") as mock_org,
+            # SmartDocument.find requires Beanie initialization which the
+            # ASGI test client skips; stub the title lookup helper directly.
+            patch(
+                "app.routers.knowledge._lookup_document_titles",
+                new_callable=AsyncMock,
+                return_value={"doc-1": "Some Document.pdf"},
+            ),
         ):
             MockUser.find_one = AsyncMock(return_value=user)
             mock_org.get_user_org_ancestry = AsyncMock(return_value=[])
@@ -423,6 +432,7 @@ class TestKnowledgeCRUD:
         data = resp.json()
         assert data["uuid"] == "kb-uuid-1"
         assert len(data["sources"]) == 1
+        assert data["sources"][0]["document_title"] == "Some Document.pdf"
 
     @pytest.mark.asyncio
     async def test_get_detail_not_found(self, client):
@@ -715,6 +725,65 @@ class TestKnowledgeDocSources:
         assert resp.status_code == 404
 
     @pytest.mark.asyncio
+    async def test_update_source_sets_custom_name(self, client):
+        user = _make_user()
+        cookies, headers = _auth()
+        kb = _mock_kb()
+        renamed = _mock_source(custom_name="Friendly Label")
+
+        with (
+            patch("app.dependencies.decode_token", return_value={"sub": "user1", "type": "access"}),
+            patch("app.dependencies.User") as MockUser,
+            patch("app.routers.knowledge.svc") as mock_svc,
+            patch("app.routers.knowledge.organization_service") as mock_org,
+            patch("app.routers.knowledge._lookup_document_titles", new_callable=AsyncMock) as mock_titles,
+        ):
+            MockUser.find_one = AsyncMock(return_value=user)
+            mock_org.get_user_org_ancestry = AsyncMock(return_value=[])
+            mock_svc.get_knowledge_base = AsyncMock(return_value=kb)
+            mock_svc.update_source_name = AsyncMock(return_value=renamed)
+            mock_titles.return_value = {"doc-1": "Original.pdf"}
+
+            resp = await client.patch(
+                "/api/knowledge/kb-uuid-1/source/src-uuid-1",
+                json={"custom_name": "Friendly Label"},
+                cookies=cookies,
+                headers=headers,
+            )
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["custom_name"] == "Friendly Label"
+        assert body["document_title"] == "Original.pdf"
+        mock_svc.update_source_name.assert_awaited_once_with(kb, "src-uuid-1", "Friendly Label")
+
+    @pytest.mark.asyncio
+    async def test_update_source_not_found(self, client):
+        user = _make_user()
+        cookies, headers = _auth()
+        kb = _mock_kb()
+
+        with (
+            patch("app.dependencies.decode_token", return_value={"sub": "user1", "type": "access"}),
+            patch("app.dependencies.User") as MockUser,
+            patch("app.routers.knowledge.svc") as mock_svc,
+            patch("app.routers.knowledge.organization_service") as mock_org,
+        ):
+            MockUser.find_one = AsyncMock(return_value=user)
+            mock_org.get_user_org_ancestry = AsyncMock(return_value=[])
+            mock_svc.get_knowledge_base = AsyncMock(return_value=kb)
+            mock_svc.update_source_name = AsyncMock(return_value=None)
+
+            resp = await client.patch(
+                "/api/knowledge/kb-uuid-1/source/ghost",
+                json={"custom_name": "x"},
+                cookies=cookies,
+                headers=headers,
+            )
+
+        assert resp.status_code == 404
+
+    @pytest.mark.asyncio
     async def test_get_status_success(self, client):
         user = _make_user()
         cookies, headers = _auth()
@@ -932,3 +1001,178 @@ class TestConvertDocumentsToKB:
         # Title should be the supplied one, NOT the first doc's title.
         call_kwargs = mock_svc.create_knowledge_base.await_args.kwargs
         assert call_kwargs["title"] == "Reference materials"
+
+
+class TestKnowledgeSharedDeleteFlow:
+    """Cover the two-mode delete + transfer-to-team flow for shared KBs."""
+
+    @pytest.mark.asyncio
+    async def test_delete_shared_kb_without_mode_returns_409(self, client):
+        user = _make_user()
+        cookies, headers = _auth()
+
+        with (
+            patch("app.dependencies.decode_token", return_value={"sub": "user1", "type": "access"}),
+            patch("app.dependencies.User") as MockUser,
+            patch("app.routers.knowledge.svc") as mock_svc,
+            patch("app.routers.knowledge.organization_service") as mock_org,
+        ):
+            MockUser.find_one = AsyncMock(return_value=user)
+            mock_org.get_user_org_ancestry = AsyncMock(return_value=[])
+            from app.services.knowledge_service import SharedKBDeleteRequiresMode
+            mock_svc.SharedKBDeleteRequiresMode = SharedKBDeleteRequiresMode
+            mock_svc.delete_knowledge_base = AsyncMock(side_effect=SharedKBDeleteRequiresMode())
+
+            resp = await client.delete(
+                "/api/knowledge/kb-uuid-1",
+                cookies=cookies,
+                headers=headers,
+            )
+
+        assert resp.status_code == 409
+        body = resp.json()["detail"]
+        assert body["code"] == "shared_kb_delete_requires_mode"
+        # Caller was invoked without force_shared.
+        call_kwargs = mock_svc.delete_knowledge_base.await_args.kwargs
+        assert call_kwargs["force_shared"] is False
+
+    @pytest.mark.asyncio
+    async def test_delete_with_unshare_and_delete_mode_force_deletes(self, client):
+        user = _make_user()
+        cookies, headers = _auth()
+
+        with (
+            patch("app.dependencies.decode_token", return_value={"sub": "user1", "type": "access"}),
+            patch("app.dependencies.User") as MockUser,
+            patch("app.routers.knowledge.svc") as mock_svc,
+            patch("app.routers.knowledge.organization_service") as mock_org,
+        ):
+            MockUser.find_one = AsyncMock(return_value=user)
+            mock_org.get_user_org_ancestry = AsyncMock(return_value=[])
+            from app.services.knowledge_service import SharedKBDeleteRequiresMode
+            mock_svc.SharedKBDeleteRequiresMode = SharedKBDeleteRequiresMode
+            mock_svc.delete_knowledge_base = AsyncMock(return_value=True)
+
+            resp = await client.delete(
+                "/api/knowledge/kb-uuid-1?mode=unshare_and_delete",
+                cookies=cookies,
+                headers=headers,
+            )
+
+        assert resp.status_code == 200
+        call_kwargs = mock_svc.delete_knowledge_base.await_args.kwargs
+        assert call_kwargs["force_shared"] is True
+
+    @pytest.mark.asyncio
+    async def test_delete_rejects_unknown_mode(self, client):
+        # The route's Query regex only allows "unshare_and_delete".
+        user = _make_user()
+        cookies, headers = _auth()
+
+        with (
+            patch("app.dependencies.decode_token", return_value={"sub": "user1", "type": "access"}),
+            patch("app.dependencies.User") as MockUser,
+        ):
+            MockUser.find_one = AsyncMock(return_value=user)
+            resp = await client.delete(
+                "/api/knowledge/kb-uuid-1?mode=transfer",
+                cookies=cookies,
+                headers=headers,
+            )
+
+        assert resp.status_code == 422
+
+    @pytest.mark.asyncio
+    async def test_transfer_to_team_success(self, client):
+        user = _make_user()
+        cookies, headers = _auth()
+        kb = _mock_kb(shared_with_team=True, team_owned=True, team_id="team-1")
+
+        with (
+            patch("app.dependencies.decode_token", return_value={"sub": "user1", "type": "access"}),
+            patch("app.dependencies.User") as MockUser,
+            patch("app.routers.knowledge.svc") as mock_svc,
+            patch("app.routers.knowledge.organization_service") as mock_org,
+        ):
+            MockUser.find_one = AsyncMock(return_value=user)
+            mock_org.get_user_org_ancestry = AsyncMock(return_value=[])
+            mock_svc.transfer_kb_to_team = AsyncMock(return_value=kb)
+
+            resp = await client.post(
+                "/api/knowledge/kb-uuid-1/transfer-to-team",
+                cookies=cookies,
+                headers=headers,
+            )
+
+        assert resp.status_code == 200
+        assert resp.json() == {"ok": True, "team_owned": True}
+
+    @pytest.mark.asyncio
+    async def test_transfer_to_team_not_found_returns_404(self, client):
+        user = _make_user()
+        cookies, headers = _auth()
+
+        with (
+            patch("app.dependencies.decode_token", return_value={"sub": "user1", "type": "access"}),
+            patch("app.dependencies.User") as MockUser,
+            patch("app.routers.knowledge.svc") as mock_svc,
+            patch("app.routers.knowledge.organization_service") as mock_org,
+        ):
+            MockUser.find_one = AsyncMock(return_value=user)
+            mock_org.get_user_org_ancestry = AsyncMock(return_value=[])
+            mock_svc.transfer_kb_to_team = AsyncMock(return_value=None)
+
+            resp = await client.post(
+                "/api/knowledge/missing/transfer-to-team",
+                cookies=cookies,
+                headers=headers,
+            )
+
+        assert resp.status_code == 404
+
+
+class TestKBListQueryBuilder:
+    """Verify the mongo query shape for the scope filters that drive My KBs vs Team."""
+
+    def test_mine_scope_excludes_team_owned(self):
+        from app.services.knowledge_service import build_kb_list_query
+
+        q = build_kb_list_query("user1", "team-1", "mine", None)
+        assert q == {"user_id": "user1", "team_owned": {"$ne": True}}
+
+    def test_team_scope_filters_by_shared_and_team_id(self):
+        from app.services.knowledge_service import build_kb_list_query
+
+        q = build_kb_list_query("user1", "team-1", "team", None)
+        assert q == {"shared_with_team": True, "team_id": "team-1"}
+
+    def test_team_scope_without_team_id_returns_none(self):
+        from app.services.knowledge_service import build_kb_list_query
+
+        assert build_kb_list_query("user1", None, "team", None) is None
+
+    def test_default_scope_excludes_team_owned_from_mine_branch(self):
+        from app.services.knowledge_service import build_kb_list_query
+
+        q = build_kb_list_query("user1", "team-1", None, None)
+        or_clauses = q["$or"]
+        mine_clause = next(
+            (c for c in or_clauses if c.get("user_id") == "user1"),
+            None,
+        )
+        assert mine_clause is not None
+        assert mine_clause["team_owned"] == {"$ne": True}
+        # Team-share branch should still be present.
+        assert any(
+            c.get("shared_with_team") is True and c.get("team_id") == "team-1"
+            for c in or_clauses
+        )
+
+    def test_search_wraps_with_and_clause(self):
+        from app.services.knowledge_service import build_kb_list_query
+
+        q = build_kb_list_query("user1", None, "mine", "needle")
+        assert "$and" in q
+        base, search = q["$and"]
+        assert base == {"user_id": "user1", "team_owned": {"$ne": True}}
+        assert search["$or"][0]["title"]["$regex"] == "needle"

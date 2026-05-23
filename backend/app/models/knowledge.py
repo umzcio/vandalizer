@@ -17,6 +17,7 @@ class KnowledgeBaseSource(Document):
     document_uuid: Optional[str] = None
     url: Optional[str] = None
     url_title: Optional[str] = None
+    custom_name: Optional[str] = None  # user-provided label; overrides auto-derived title
     content: Optional[str] = None
     status: str = "pending"  # pending | processing | ready | error
     error_message: Optional[str] = None
@@ -76,6 +77,7 @@ class KnowledgeBase(Document):
     user_id: str
     team_id: Optional[str] = None
     shared_with_team: bool = False
+    team_owned: bool = False
     verified: bool = False
     organization_ids: list[str] = Field(default_factory=list)  # Org UUIDs for visibility scoping
     status: str = "empty"  # empty | building | ready | error

@@ -10,12 +10,14 @@ import {
   MessageSquare,
   MoreHorizontal,
   Share2,
+  Link2,
   Send,
   Bookmark,
   Users,
 } from 'lucide-react'
 import type { KnowledgeBase } from '../../types/knowledge'
 import type { Organization } from '../../api/organizations'
+import { useShareLink } from '../../lib/shareLink'
 
 const STATUS_BADGE: Record<string, { label: string; color: string; bg: string }> = {
   empty: { label: 'Empty', color: '#6b7280', bg: '#f3f4f6' },
@@ -46,6 +48,7 @@ export function KBCard({
   const badge = STATUS_BADGE[kb.status] || STATUS_BADGE.empty
   const isReady = kb.status === 'ready'
   const isReference = kb.is_reference
+  const shareLink = useShareLink()
 
   const [menuOpen, setMenuOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
@@ -116,12 +119,17 @@ export function KBCard({
           {kb.title}
         </span>
         {kb.shared_with_team && (
-          <span style={{
-            fontSize: 10, fontWeight: 600, padding: '1px 6px', borderRadius: 8,
-            color: 'rgb(0, 128, 128)', backgroundColor: 'rgba(0, 128, 128, 0.1)',
-            whiteSpace: 'nowrap',
-          }}>
-            Team
+          <span
+            title={kb.team_owned
+              ? 'Owned by your team — not in any individual\'s My KBs'
+              : 'Shared with your team'}
+            style={{
+              fontSize: 10, fontWeight: 600, padding: '1px 6px', borderRadius: 8,
+              color: 'rgb(0, 128, 128)', backgroundColor: 'rgba(0, 128, 128, 0.1)',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {kb.team_owned ? 'Team-owned' : 'Team'}
           </span>
         )}
         {kb.verified && (
@@ -239,6 +247,16 @@ export function KBCard({
               label={kb.shared_with_team ? 'Unshare from team' : 'Share with team'}
               onClick={() => {
                 onShare(kb)
+                setMenuOpen(false)
+              }}
+            />
+          )}
+          {isReady && (
+            <MenuItem
+              icon={<Link2 size={14} />}
+              label="Copy share link"
+              onClick={() => {
+                shareLink('kb', kb.uuid, kb.title)
                 setMenuOpen(false)
               }}
             />

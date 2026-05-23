@@ -22,7 +22,6 @@ from app.models.workflow import (
 )
 from app.services.access_control import (
     can_manage_workflow,
-    can_view_workflow,
     get_authorized_document,
     get_authorized_workflow,
     get_team_access_context,
@@ -100,14 +99,31 @@ async def list_workflows(
     return await Workflow.find(query).skip(skip).limit(limit).to_list()
 
 
-async def get_workflow(workflow_id: str, user: User | None = None) -> dict | None:
-    """Get workflow with dereferenced steps and tasks."""
+async def get_workflow(
+    workflow_id: str,
+    user: User | None = None,
+    share_token: str | None = None,
+) -> dict | None:
+    """Get workflow with dereferenced steps and tasks.
+
+    If ``user`` lacks team/library access, a non-empty ``share_token`` that
+    matches the workflow's stored token grants view-only access (manage=False).
+    """
     if user is not None:
         wf = await get_authorized_workflow(workflow_id, user)
-        if not wf:
+        if wf:
+            team_access = await get_team_access_context(user)
+            can_manage = can_manage_workflow(wf, user, team_access)
+        elif share_token:
+            try:
+                wf = await Workflow.get(PydanticObjectId(workflow_id))
+            except Exception:
+                return None
+            if not wf or not wf.share_token or wf.share_token != share_token:
+                return None
+            can_manage = False
+        else:
             return None
-        team_access = await get_team_access_context(user)
-        can_manage = can_manage_workflow(wf, user, team_access)
     else:
         wf = await Workflow.get(PydanticObjectId(workflow_id))
         if not wf:
@@ -227,9 +243,24 @@ async def delete_workflow(workflow_id: str, user: User) -> bool:
     return True
 
 
-async def duplicate_workflow(workflow_id: str, user: User, user_id: str, team_id: str | None = None) -> dict | None:
-    # Authorize access to the original workflow before duplicating
+async def duplicate_workflow(
+    workflow_id: str,
+    user: User,
+    user_id: str,
+    team_id: str | None = None,
+    share_token: str | None = None,
+) -> dict | None:
+    # Authorize access to the original workflow before duplicating. A valid
+    # share_token grants the recipient enough access to copy it into their
+    # own workspace, since the share-link UX promises "anyone can use this".
     wf_check = await get_authorized_workflow(workflow_id, user)
+    if not wf_check and share_token:
+        try:
+            wf_check = await Workflow.get(PydanticObjectId(workflow_id))
+        except Exception:
+            wf_check = None
+        if not wf_check or not wf_check.share_token or wf_check.share_token != share_token:
+            wf_check = None
     if not wf_check:
         return None
 
@@ -506,12 +537,10 @@ async def _get_authorized_workflow_result(
     if not result or not result.workflow:
         return None
 
-    workflow = await Workflow.get(result.workflow)
+    # Use the library-aware authorizer so users can poll status for verified
+    # workflows they launched from the library but don't own / aren't on the team for.
+    workflow = await get_authorized_workflow(str(result.workflow), user)
     if not workflow:
-        return None
-
-    team_access = await get_team_access_context(user)
-    if not can_view_workflow(workflow, user, team_access):
         return None
 
     return result
@@ -634,11 +663,10 @@ async def get_batch_status(batch_id: str, user: User | None = None) -> dict | No
         first = results[0]
         if not first.workflow:
             return None
-        workflow = await Workflow.get(first.workflow)
+        # Library-aware: also allows batch status polling for verified workflows
+        # launched from the library (matches /run authorization).
+        workflow = await get_authorized_workflow(str(first.workflow), user)
         if not workflow:
-            return None
-        team_access = await get_team_access_context(user)
-        if not can_view_workflow(workflow, user, team_access):
             return None
 
     total = len(results)

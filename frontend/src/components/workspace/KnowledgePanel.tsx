@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { Plus, Loader2, ArrowLeft, X, FileText, Globe, MessageSquare, AlertCircle, CheckCircle2, Users, ShieldCheck, Send, Tag, Check, Download, Upload, HelpCircle } from 'lucide-react'
+import { Plus, Loader2, ArrowLeft, X, FileText, Globe, MessageSquare, AlertCircle, CheckCircle2, Users, ShieldCheck, Send, Tag, Check, Download, Upload, HelpCircle, Pencil } from 'lucide-react'
 import { useKnowledgeBases, useScopedKnowledgeBases } from '../../hooks/useKnowledgeBases'
 import { useWorkspace } from '../../contexts/WorkspaceContext'
 import { useAuth } from '../../hooks/useAuth'
@@ -18,6 +18,7 @@ import { KnowledgeExplainer } from './KnowledgeExplainer'
 import { ShareWithTeamDialog } from '../library/ShareWithTeamDialog'
 import { useToast } from '../../contexts/ToastContext'
 import { useConfirm } from '../shared/useConfirm'
+import { SharedKBDeleteDialog, type SharedKBDeleteChoice } from '../shared/SharedKBDeleteDialog'
 
 type TabKey = 'mine' | 'team' | 'explore'
 const TABS: { key: TabKey; label: string }[] = [
@@ -44,7 +45,8 @@ export function KnowledgePanel() {
   const { activateKB } = useWorkspace()
   const { user } = useAuth()
   const { toast } = useToast()
-  const { create, remove, refresh } = useKnowledgeBases()
+  const { create, remove, transferToTeam, refresh } = useKnowledgeBases()
+  const [sharedDeleteTarget, setSharedDeleteTarget] = useState<KnowledgeBase | null>(null)
   const confirm = useConfirm()
   const [activeTab, setActiveTab] = useState<TabKey>('mine')
   const [search, setSearch] = useState('')
@@ -168,6 +170,10 @@ export function KnowledgePanel() {
 
   const handleDelete = async (uuid: string) => {
     const kb = scopedMine.knowledgeBases.find((k: KnowledgeBase) => k.uuid === uuid)
+    if (kb?.shared_with_team) {
+      setSharedDeleteTarget(kb)
+      return
+    }
     const ok = await confirm({
       title: 'Delete knowledge base?',
       message: (
@@ -186,6 +192,26 @@ export function KnowledgePanel() {
     } catch (err) {
       console.error('Failed to delete KB:', err)
       toast(err instanceof Error ? err.message : 'Failed to delete knowledge base', 'error')
+    }
+  }
+
+  const handleSharedDeleteChoice = async (choice: SharedKBDeleteChoice) => {
+    const kb = sharedDeleteTarget
+    if (!kb) return
+    try {
+      if (choice === 'transfer') {
+        await transferToTeam(kb.uuid)
+        if (selectedKB?.uuid === kb.uuid) setSelectedKB(null)
+        toast('Moved to Team Library', 'success')
+      } else {
+        await remove(kb.uuid, 'unshare_and_delete')
+        if (selectedKB?.uuid === kb.uuid) setSelectedKB(null)
+        toast('Knowledge base deleted', 'success')
+      }
+      setSharedDeleteTarget(null)
+    } catch (err) {
+      console.error('Failed to delete/transfer KB:', err)
+      toast(err instanceof Error ? err.message : 'Operation failed', 'error')
     }
   }
 
@@ -236,6 +262,63 @@ export function KnowledgePanel() {
     } catch (err) {
       console.error('Failed to remove source:', err)
       toast(err instanceof Error ? err.message : 'Failed to remove source', 'error')
+    }
+  }
+
+  const [renamingSourceUuid, setRenamingSourceUuid] = useState<string | null>(null)
+  const [renameDraft, setRenameDraft] = useState('')
+  const [savingRename, setSavingRename] = useState(false)
+
+  const beginRenameSource = (source: KnowledgeBaseSource) => {
+    const current =
+      source.custom_name
+      || (source.source_type === 'url' ? (source.url_title || source.url || '') : (source.document_title || ''))
+    setRenamingSourceUuid(source.uuid)
+    setRenameDraft(current || '')
+  }
+
+  const cancelRenameSource = () => {
+    setRenamingSourceUuid(null)
+    setRenameDraft('')
+    setSavingRename(false)
+  }
+
+  const handleRenameSource = async () => {
+    if (!selectedKB || !renamingSourceUuid) return
+    const sourceUuid = renamingSourceUuid
+    const current = selectedKB.sources.find(s => s.uuid === sourceUuid)
+    const previous = current?.custom_name || ''
+    const next = renameDraft.trim()
+    if (next === previous) {
+      cancelRenameSource()
+      return
+    }
+    setSavingRename(true)
+    // Optimistic update so the row reflects the new name immediately
+    setSelectedKB(prev => prev ? {
+      ...prev,
+      sources: prev.sources.map(s => s.uuid === sourceUuid ? { ...s, custom_name: next || null } : s),
+    } : prev)
+    try {
+      const updated = await api.renameKBSource(selectedKB.uuid, sourceUuid, next)
+      setSelectedKB(prev => prev ? {
+        ...prev,
+        sources: prev.sources.map(s => s.uuid === sourceUuid ? {
+          ...s,
+          custom_name: updated.custom_name ?? null,
+        } : s),
+      } : prev)
+      toast(next ? 'Source renamed' : 'Custom name cleared', 'success')
+    } catch (err) {
+      console.error('Failed to rename source:', err)
+      toast(err instanceof Error ? err.message : 'Failed to rename source', 'error')
+      // Revert on failure
+      setSelectedKB(prev => prev ? {
+        ...prev,
+        sources: prev.sources.map(s => s.uuid === sourceUuid ? { ...s, custom_name: previous || null } : s),
+      } : prev)
+    } finally {
+      cancelRenameSource()
     }
   }
 
@@ -544,17 +627,29 @@ export function KnowledgePanel() {
               </button>
             </form>
           ) : (
-            <span
-              onClick={() => { setTitleDraft(selectedKB.title); setEditingTitle(true) }}
-              title="Click to rename"
-              style={{
-                fontSize: 16, fontWeight: 600, color: '#fff', flex: 1,
-                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                cursor: 'text', borderRadius: 4, padding: '2px 0',
-              }}
-            >
-              {selectedKB.title}
-            </span>
+            <>
+              <span
+                onClick={() => { setTitleDraft(selectedKB.title); setEditingTitle(true) }}
+                title="Click to rename"
+                style={{
+                  fontSize: 16, fontWeight: 600, color: '#fff', flex: 1,
+                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                  cursor: 'text', borderRadius: 4, padding: '2px 0',
+                }}
+              >
+                {selectedKB.title}
+              </span>
+              <button
+                onClick={() => { setTitleDraft(selectedKB.title); setEditingTitle(true) }}
+                title="Rename"
+                style={{
+                  background: 'none', border: 'none', cursor: 'pointer',
+                  padding: 4, color: '#9ca3af', display: 'flex', flexShrink: 0,
+                }}
+              >
+                <Pencil style={{ width: 14, height: 14 }} />
+              </button>
+            </>
           )}
           {selectedKB.shared_with_team && (
             <span style={{
@@ -779,6 +874,11 @@ export function KnowledgePanel() {
                 {selectedKB.sources.map((source: KnowledgeBaseSource) => {
                   const st = SOURCE_STATUS[source.status] || SOURCE_STATUS.pending
                   const StatusIcon = st.icon
+                  const autoLabel = source.source_type === 'url'
+                    ? (source.url_title || source.url || '')
+                    : (source.document_title || source.document_uuid || '')
+                  const displayLabel = source.custom_name || autoLabel
+                  const isRenaming = renamingSourceUuid === source.uuid
                   return (
                     <div
                       key={source.uuid}
@@ -794,29 +894,91 @@ export function KnowledgePanel() {
                         <Globe size={14} style={{ color: '#888', flexShrink: 0 }} />
                       )}
                       <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: 12, color: '#e5e5e5', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {source.source_type === 'url' ? (source.url_title || source.url) : source.document_uuid}
-                        </div>
-                        {source.error_message && (
+                        {isRenaming ? (
+                          <input
+                            autoFocus
+                            value={renameDraft}
+                            onChange={e => setRenameDraft(e.target.value)}
+                            onKeyDown={e => {
+                              if (e.key === 'Enter') { e.preventDefault(); handleRenameSource() }
+                              else if (e.key === 'Escape') { e.preventDefault(); cancelRenameSource() }
+                            }}
+                            placeholder={autoLabel || 'Custom name'}
+                            maxLength={300}
+                            disabled={savingRename}
+                            style={{
+                              width: '100%', fontSize: 12, color: '#e5e5e5',
+                              backgroundColor: '#1f1f1f', border: '1px solid #4a4a4a',
+                              borderRadius: 4, padding: '4px 6px', fontFamily: 'inherit',
+                              outline: 'none',
+                            }}
+                          />
+                        ) : (
+                          <div
+                            style={{ fontSize: 12, color: '#e5e5e5', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                            title={source.custom_name
+                              ? `${displayLabel} — original: ${autoLabel || (source.source_type === 'url' ? source.url : source.document_uuid) || ''}`
+                              : (source.source_type === 'url' ? (source.url || '') : (source.document_uuid || ''))}
+                          >
+                            {displayLabel}
+                            {source.custom_name && autoLabel && autoLabel !== source.custom_name && (
+                              <span style={{ color: '#888', marginLeft: 6, fontStyle: 'italic' }}>
+                                · {autoLabel}
+                              </span>
+                            )}
+                          </div>
+                        )}
+                        {!isRenaming && source.error_message && (
                           <div style={{ fontSize: 11, color: '#ef4444', marginTop: 2 }}>{source.error_message}</div>
                         )}
-                        {source.status === 'ready' && (
+                        {!isRenaming && source.status === 'ready' && (
                           <div style={{ fontSize: 11, color: '#888', marginTop: 2 }}>{source.chunk_count} chunks</div>
                         )}
                       </div>
-                      <StatusIcon
-                        size={14}
-                        style={{
-                          color: st.color, flexShrink: 0,
-                          ...(source.status === 'processing' || source.status === 'pending' ? { animation: 'spin 1s linear infinite' } : {}),
-                        }}
-                      />
-                      <button
-                        onClick={() => handleRemoveSource(source.uuid)}
-                        style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: 2, display: 'flex' }}
-                      >
-                        <X size={12} style={{ color: '#666' }} />
-                      </button>
+                      {isRenaming ? (
+                        <>
+                          <button
+                            onClick={handleRenameSource}
+                            disabled={savingRename}
+                            title="Save name"
+                            style={{ background: 'transparent', border: 'none', cursor: savingRename ? 'default' : 'pointer', padding: 2, display: 'flex' }}
+                          >
+                            <Check size={14} style={{ color: '#22c55e' }} />
+                          </button>
+                          <button
+                            onClick={cancelRenameSource}
+                            disabled={savingRename}
+                            title="Cancel"
+                            style={{ background: 'transparent', border: 'none', cursor: savingRename ? 'default' : 'pointer', padding: 2, display: 'flex' }}
+                          >
+                            <X size={14} style={{ color: '#888' }} />
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <StatusIcon
+                            size={14}
+                            style={{
+                              color: st.color, flexShrink: 0,
+                              ...(source.status === 'processing' || source.status === 'pending' ? { animation: 'spin 1s linear infinite' } : {}),
+                            }}
+                          />
+                          <button
+                            onClick={() => beginRenameSource(source)}
+                            title={source.custom_name ? 'Rename (or clear to revert to original)' : 'Rename source'}
+                            style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: 2, display: 'flex' }}
+                          >
+                            <Pencil size={12} style={{ color: '#888' }} />
+                          </button>
+                          <button
+                            onClick={() => handleRemoveSource(source.uuid)}
+                            title="Remove source"
+                            style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: 2, display: 'flex' }}
+                          >
+                            <X size={12} style={{ color: '#666' }} />
+                          </button>
+                        </>
+                      )}
                     </div>
                   )
                 })}
@@ -958,6 +1120,12 @@ export function KnowledgePanel() {
 
       {shareDialogJSX}
       {verifyModalJSX}
+      <SharedKBDeleteDialog
+        open={!!sharedDeleteTarget}
+        kbTitle={sharedDeleteTarget?.title ?? ''}
+        onCancel={() => setSharedDeleteTarget(null)}
+        onChoose={handleSharedDeleteChoice}
+      />
       </>
     )
   }
@@ -1185,6 +1353,12 @@ export function KnowledgePanel() {
     )}
     {shareDialogJSX}
     {verifyModalJSX}
+    <SharedKBDeleteDialog
+      open={!!sharedDeleteTarget}
+      kbTitle={sharedDeleteTarget?.title ?? ''}
+      onCancel={() => setSharedDeleteTarget(null)}
+      onChoose={handleSharedDeleteChoice}
+    />
     </>
   )
 }
