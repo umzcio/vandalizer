@@ -14,6 +14,7 @@ import {
   LineChart, Line,
 } from 'recharts'
 import { PageLayout } from '../components/layout/PageLayout'
+import { useConfirm } from '../components/shared/useConfirm'
 import { useAuth } from '../hooks/useAuth'
 import { useTeams } from '../hooks/useTeams'
 import { getThemeConfig, updateThemeConfig } from '../api/config'
@@ -22,7 +23,7 @@ import {
   getUsageStats, getUsageTimeseries, getUserLeaderboard, getTeamLeaderboard,
   getTeamDetail, getUserDetail,
   getWorkflowEvents, getSystemConfig, updateSystemConfig, updateCompliancePolicyConfig,
-  addModel, updateModel, deleteModel, setDefaultModel, testOcr, testModel, addOAuthProvider,
+  addModel, updateModel, deleteModel, setDefaultModel, testOcr, testModel, probeModel, addOAuthProvider,
   updateOAuthProvider, deleteOAuthProvider, updateAuthMethods,
   getQualitySummary, getQualityTimeline, runRegressionSuite,
   getQualityAlerts, acknowledgeAlert, getQualityItems, getQualityItemDetail,
@@ -36,6 +37,7 @@ import * as orgApi from '../api/organizations'
 import type { Organization, OrgMember, OrgTeam } from '../api/organizations'
 import {
   getDemoStats, getDemoApplications, releaseDemoUser, activateDemoUser, restartDemoTrial,
+  promoteDemoUser,
   getPostExperienceResponses, sendTestEmail, adminResendCredentials, adminGetMagicLink,
   adminAddDemoUser,
 } from '../api/demo'
@@ -231,17 +233,18 @@ function UserAvatar({ name }: { name: string | null }) {
   )
 }
 
-function SortableHeader({ label, sortKey, currentSort, onSort }: {
+function SortableHeader({ label, sortKey, currentSort, onSort, align = 'left' }: {
   label: string; sortKey: string
   currentSort: { key: string; dir: 'asc' | 'desc' }
   onSort: (key: string) => void
+  align?: 'left' | 'right' | 'center'
 }) {
   const active = currentSort.key === sortKey
   return (
     <th
       onClick={() => onSort(sortKey)}
       style={{
-        padding: '10px 16px', textAlign: 'left', fontSize: 11, fontWeight: 600, color: '#6b7280',
+        padding: '10px 16px', textAlign: align, fontSize: 11, fontWeight: 600, color: '#6b7280',
         textTransform: 'uppercase', cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap',
       }}
     >
@@ -808,9 +811,9 @@ function UsersTab() {
                 <th style={{ padding: '10px 16px', textAlign: 'left', fontSize: 11, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase' }}>#</th>
                 <SortableHeader label="User" sortKey="name" currentSort={sort} onSort={handleSort} />
                 <SortableHeader label="Token Usage" sortKey="tokens_total" currentSort={sort} onSort={handleSort} />
-                <SortableHeader label="Workflows" sortKey="workflows_run" currentSort={sort} onSort={handleSort} />
-                <SortableHeader label="Chats" sortKey="conversations" currentSort={sort} onSort={handleSort} />
-                <SortableHeader label="Last Active" sortKey="last_active" currentSort={sort} onSort={handleSort} />
+                <SortableHeader label="Workflows" sortKey="workflows_run" currentSort={sort} onSort={handleSort} align="right" />
+                <SortableHeader label="Chats" sortKey="conversations" currentSort={sort} onSort={handleSort} align="right" />
+                <SortableHeader label="Last Active" sortKey="last_active" currentSort={sort} onSort={handleSort} align="right" />
               </tr>
             </thead>
             <tbody>
@@ -1058,6 +1061,7 @@ function TeamDrillDown({ teamId, onBack }: { teamId: string; onBack: () => void 
 }
 
 function TeamsTab() {
+  const confirm = useConfirm()
   const [subTab, setSubTab] = useState<'manage' | 'stats' | 'isolated'>('manage')
 
   // ── Manage sub-tab state ──────────────────────────────────────────────────
@@ -1183,7 +1187,17 @@ function TeamsTab() {
   }
 
   const handleRemoveUser = async (teamUuid: string, userId: string, userName: string) => {
-    if (!window.confirm(`Remove ${userName} from this team?`)) return
+    const ok = await confirm({
+      title: 'Remove user from team?',
+      message: (
+        <>
+          Are you sure you want to remove <strong>{userName}</strong> from this team? They will lose access to the team's content.
+        </>
+      ),
+      confirmLabel: 'Remove',
+      destructive: true,
+    })
+    if (!ok) return
     await adminRemoveUserFromTeam(teamUuid, userId)
     const members = await getTeamMembers(teamUuid)
     setTeamMembers(prev => ({ ...prev, [teamUuid]: members }))
@@ -1443,10 +1457,10 @@ function TeamsTab() {
                   <tr style={{ background: '#f9fafb', borderBottom: '1px solid #e5e7eb' }}>
                     <SortableHeader label="Team" sortKey="name" currentSort={sort} onSort={handleSort} />
                     <SortableHeader label="Token Usage" sortKey="tokens_total" currentSort={sort} onSort={handleSort} />
-                    <SortableHeader label="Workflows" sortKey="workflows_completed" currentSort={sort} onSort={handleSort} />
-                    <SortableHeader label="Active Users" sortKey="active_users" currentSort={sort} onSort={handleSort} />
-                    <SortableHeader label="Members" sortKey="member_count" currentSort={sort} onSort={handleSort} />
-                    <SortableHeader label="Avg Latency" sortKey="avg_latency_ms" currentSort={sort} onSort={handleSort} />
+                    <SortableHeader label="Workflows" sortKey="workflows_completed" currentSort={sort} onSort={handleSort} align="right" />
+                    <SortableHeader label="Active Users" sortKey="active_users" currentSort={sort} onSort={handleSort} align="right" />
+                    <SortableHeader label="Members" sortKey="member_count" currentSort={sort} onSort={handleSort} align="right" />
+                    <SortableHeader label="Avg Latency" sortKey="avg_latency_ms" currentSort={sort} onSort={handleSort} align="right" />
                   </tr>
                 </thead>
                 <tbody>
@@ -2278,6 +2292,7 @@ function QualityTab() {
 // ──────────────────────────────────────────
 
 function ConfigTab() {
+  const confirm = useConfirm()
   const [cfg, setCfg] = useState<SystemConfigData | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -2331,7 +2346,9 @@ function ConfigTab() {
   const [showModelForm, setShowModelForm] = useState(false)
   const [editingModelIndex, setEditingModelIndex] = useState<number | null>(null)
   const [savingModel, setSavingModel] = useState(false)
-  const [newModel, setNewModel] = useState({ name: '', tag: '', external: false, thinking: false, endpoint: '', api_protocol: '', api_key: '', speed: '', tier: '', privacy: '', supports_structured: true, multimodal: false, supports_pdf: false })
+  const [newModel, setNewModel] = useState({ name: '', tag: '', external: false, thinking: false, endpoint: '', api_protocol: '', api_key: '', speed: '', tier: '', privacy: '', supports_structured: true, multimodal: false, supports_pdf: false, context_window: 128000 })
+  const [probingContext, setProbingContext] = useState(false)
+  const [probeResult, setProbeResult] = useState<{ ok: boolean; message: string } | null>(null)
 
   // Support contacts
   const [supportContacts, setSupportContacts] = useState<{ user_id: string; email: string; name: string }[]>([])
@@ -2484,6 +2501,30 @@ function ConfigTab() {
     }
   }
 
+  const handleProbeContextWindow = async () => {
+    setProbingContext(true)
+    setProbeResult(null)
+    try {
+      const result = await probeModel({
+        name: newModel.name,
+        endpoint: newModel.endpoint,
+        api_protocol: newModel.api_protocol,
+        api_key: newModel.api_key,
+        existing_model_index: editingModelIndex,
+      })
+      if (result.context_window && result.context_window > 0) {
+        setNewModel(prev => ({ ...prev, context_window: result.context_window as number }))
+        setProbeResult({ ok: true, message: `Detected ${result.context_window.toLocaleString()} tokens (${result.source}).` })
+      } else {
+        setProbeResult({ ok: false, message: result.detail || `No context length reported (${result.source}).` })
+      }
+    } catch (e) {
+      setProbeResult({ ok: false, message: e instanceof Error ? e.message : 'Probe failed' })
+    } finally {
+      setProbingContext(false)
+    }
+  }
+
   const handleSaveModel = async () => {
     if (!newModel.name.trim()) {
       setError('Model name is required')
@@ -2510,7 +2551,8 @@ function ConfigTab() {
           ...(resDefault !== undefined ? { default_model: resDefault } : {}),
         })
       }
-      setNewModel({ name: '', tag: '', external: false, thinking: false, endpoint: '', api_protocol: '', api_key: '', speed: '', tier: '', privacy: '', supports_structured: true, multimodal: false, supports_pdf: false })
+      setNewModel({ name: '', tag: '', external: false, thinking: false, endpoint: '', api_protocol: '', api_key: '', speed: '', tier: '', privacy: '', supports_structured: true, multimodal: false, supports_pdf: false, context_window: 128000 })
+      setProbeResult(null)
       setShowModelForm(false)
       setEditingModelIndex(null)
     } catch (e) {
@@ -2537,12 +2579,26 @@ function ConfigTab() {
       supports_structured: m.supports_structured !== false,
       multimodal: !!m.multimodal,
       supports_pdf: !!m.supports_pdf,
+      context_window: typeof m.context_window === 'number' && m.context_window > 0 ? m.context_window : 128000,
     })
+    setProbeResult(null)
     setEditingModelIndex(index)
     setShowModelForm(true)
   }
 
   const handleDeleteModel = async (index: number) => {
+    const model = cfg?.available_models?.[index]
+    const ok = await confirm({
+      title: 'Delete model?',
+      message: (
+        <>
+          Are you sure you want to delete the model <strong>{model?.name || 'this model'}</strong>? Workflows and chats configured to use it will fail until reconfigured.
+        </>
+      ),
+      confirmLabel: 'Delete',
+      destructive: true,
+    })
+    if (!ok) return
     try {
       const res = await deleteModel(index)
       if (cfg) {
@@ -2620,6 +2676,19 @@ function ConfigTab() {
   }
 
   const handleDeleteProvider = async (index: number) => {
+    const provider = cfg?.oauth_providers?.[index] as Record<string, unknown> | undefined
+    const name = (provider?.display_name as string) || (provider?.provider as string) || 'this provider'
+    const ok = await confirm({
+      title: 'Delete OAuth provider?',
+      message: (
+        <>
+          Are you sure you want to delete <strong>{name}</strong>? Users authenticating through this provider will no longer be able to sign in via it.
+        </>
+      ),
+      confirmLabel: 'Delete',
+      destructive: true,
+    })
+    if (!ok) return
     try {
       await deleteOAuthProvider(index)
       const c = await getSystemConfig()
@@ -2689,7 +2758,7 @@ function ConfigTab() {
         position: 'sticky', top: 0, zIndex: 20,
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
         background: '#fff', borderBottom: '1px solid #e5e7eb',
-        padding: '12px 0', margin: '0 0 -4px',
+        padding: '12px 20px', margin: '0 0 -4px',
         boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
       }}>
         <span style={{ fontSize: 14, fontWeight: 600, color: '#374151', display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -2724,7 +2793,8 @@ function ConfigTab() {
           <div style={{ flex: 1 }} />
           <button
             onClick={() => {
-              setNewModel({ name: '', tag: '', external: false, thinking: false, endpoint: '', api_protocol: '', api_key: '', speed: '', tier: '', privacy: '', supports_structured: true, multimodal: false, supports_pdf: false })
+              setNewModel({ name: '', tag: '', external: false, thinking: false, endpoint: '', api_protocol: '', api_key: '', speed: '', tier: '', privacy: '', supports_structured: true, multimodal: false, supports_pdf: false, context_window: 128000 })
+              setProbeResult(null)
               setEditingModelIndex(null)
               setShowModelForm(!showModelForm)
             }}
@@ -2887,6 +2957,51 @@ function ConfigTab() {
                     <option value="external">External</option>
                   </select>
                 </div>
+              </div>
+              <div style={{ marginTop: 12 }}>
+                <label style={labelStyle}>Context Window (tokens)</label>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'stretch' }}>
+                  <input
+                    type="number"
+                    min={1}
+                    value={newModel.context_window}
+                    onChange={e => {
+                      const v = parseInt(e.target.value, 10)
+                      setNewModel(prev => ({ ...prev, context_window: Number.isFinite(v) && v > 0 ? v : 0 }))
+                      setProbeResult(null)
+                    }}
+                    placeholder="e.g. 65536"
+                    style={{ ...inputStyle, flex: 1 }}
+                  />
+                  <button
+                    onClick={handleProbeContextWindow}
+                    disabled={probingContext || !newModel.name.trim()}
+                    title="Ask the endpoint what context window it actually serves. Catches the case where the model card says 131k but the deployment was launched with a smaller --max-model-len."
+                    style={{
+                      padding: '0 14px', borderRadius: 'var(--ui-radius, 12px)',
+                      border: '1px solid #d1d5db', background: '#fff', fontSize: 13,
+                      cursor: probingContext || !newModel.name.trim() ? 'not-allowed' : 'pointer',
+                      opacity: probingContext || !newModel.name.trim() ? 0.6 : 1,
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {probingContext ? 'Probing…' : 'Probe endpoint'}
+                  </button>
+                </div>
+                <div style={{ fontSize: 11, color: '#6b7280', marginTop: 4 }}>
+                  The serving cap (e.g. vLLM&rsquo;s <code>--max-model-len</code>), not the model card&rsquo;s theoretical max. Compaction and the oversize-doc check use this to decide what fits.
+                </div>
+                {probeResult && (
+                  <div style={{
+                    marginTop: 6, padding: '6px 10px', borderRadius: 'var(--ui-radius, 12px)',
+                    background: probeResult.ok ? '#ecfdf5' : '#fef3c7',
+                    border: `1px solid ${probeResult.ok ? '#a7f3d0' : '#fcd34d'}`,
+                    color: probeResult.ok ? '#065f46' : '#92400e',
+                    fontSize: 12,
+                  }}>
+                    {probeResult.message}
+                  </div>
+                )}
               </div>
               <div style={{ display: 'flex', gap: 16, marginTop: 12 }}>
                 <label style={{ display: 'flex', alignItems: 'center', fontSize: 14, cursor: 'pointer' }}>
@@ -3936,6 +4051,7 @@ function DemoResponseDetail({ responses }: { responses: Record<string, unknown> 
 }
 
 function DemoTab() {
+  const confirm = useConfirm()
   const [subTab, setSubTab] = useState<'applications' | 'surveys'>('applications')
   const [stats, setStats] = useState<DemoAdminStats | null>(null)
   const [apps, setApps] = useState<DemoApp[]>([])
@@ -4051,13 +4167,42 @@ function DemoTab() {
   }
 
   async function handleRestartTrial(uuid: string) {
-    if (!confirm('Restart this user\'s trial? This will give them a fresh 14-day trial.')) return
+    const ok = await confirm({
+      title: 'Restart trial?',
+      message: 'Restart this user\'s trial? They will get a fresh 14-day trial period starting now.',
+      confirmLabel: 'Restart trial',
+    })
+    if (!ok) return
     setActionLoading(`restart-${uuid}`)
     try {
       await restartDemoTrial(uuid)
       loadData()
     } catch {
       alert('Failed to restart trial')
+    } finally {
+      setActionLoading(null)
+    }
+  }
+
+  async function handlePromote(uuid: string, email: string) {
+    const ok = await confirm({
+      title: 'Promote to full user?',
+      message: (
+        <>
+          Promote <strong>{email}</strong> to a permanent full user? Their trial expiry
+          will be cleared and they'll keep their account, data, and team membership.
+          This cannot be reversed from this screen.
+        </>
+      ),
+      confirmLabel: 'Promote',
+    })
+    if (!ok) return
+    setActionLoading(`promote-${uuid}`)
+    try {
+      await promoteDemoUser(uuid)
+      loadData()
+    } catch {
+      alert('Failed to promote user')
     } finally {
       setActionLoading(null)
     }
@@ -4076,7 +4221,17 @@ function DemoTab() {
   }
 
   async function handleResendCredentials(uuid: string, email: string) {
-    if (!confirm(`Resend credentials to ${email}? This will reset their password.`)) return
+    const ok = await confirm({
+      title: 'Resend credentials?',
+      message: (
+        <>
+          Resend credentials to <strong>{email}</strong>? This will reset their password.
+        </>
+      ),
+      confirmLabel: 'Resend',
+      destructive: true,
+    })
+    if (!ok) return
     setActionLoading(`resend-${uuid}`)
     try {
       await adminResendCredentials(uuid)
@@ -4426,6 +4581,27 @@ function DemoTab() {
                             >
                               Restart Trial
                             </button>
+                          )}
+                          {(app.status === 'active' || app.status === 'expired' || app.status === 'completed') && app.user_is_demo && (
+                            <button
+                              onClick={() => handlePromote(app.uuid, app.email)}
+                              disabled={actionLoading === `promote-${app.uuid}`}
+                              title="Promote to permanent full user (clears trial expiry)"
+                              style={{
+                                display: 'flex', alignItems: 'center', gap: 4,
+                                padding: '4px 12px', borderRadius: 6, border: '1px solid #16a34a',
+                                background: '#f0fdf4', color: '#166534', fontSize: 12, fontWeight: 600,
+                                cursor: 'pointer', fontFamily: 'inherit',
+                                opacity: actionLoading === `promote-${app.uuid}` ? 0.5 : 1,
+                              }}
+                            >
+                              <Award size={12} /> Promote
+                            </button>
+                          )}
+                          {(app.status === 'active' || app.status === 'expired' || app.status === 'completed') && !app.user_is_demo && (
+                            <span style={{ fontSize: 12, color: '#166534', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>
+                              <Award size={12} /> Full user
+                            </span>
                           )}
                           <button
                             onClick={() => handleTestEmail(app.email)}
@@ -5693,6 +5869,7 @@ function ImportDialog({ onClose, onImported }: { onClose: () => void; onImported
 }
 
 function OrganizationsTab() {
+  const confirm = useConfirm()
   const [tree, setTree] = useState<Organization[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -5728,7 +5905,17 @@ function OrganizationsTab() {
     catch (e) { setError(e instanceof Error ? e.message : 'Failed to update') }
   }
   const handleDelete = async (org: Organization) => {
-    if (!confirm(`Delete "${org.name}"? Children will be re-parented to its parent.`)) return
+    const ok = await confirm({
+      title: 'Delete organization?',
+      message: (
+        <>
+          Are you sure you want to delete <strong>{org.name}</strong>? Any child organizations will be re-parented to its parent.
+        </>
+      ),
+      confirmLabel: 'Delete',
+      destructive: true,
+    })
+    if (!ok) return
     setError(null)
     if (selectedOrg?.uuid === org.uuid) setSelectedOrg(null)
     try { await orgApi.deleteOrganization(org.uuid); loadTree() }

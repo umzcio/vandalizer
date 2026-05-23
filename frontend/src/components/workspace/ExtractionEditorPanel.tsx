@@ -1,10 +1,12 @@
 import React, { Fragment, useCallback, useEffect, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { ExtractionTutorial } from './ExtractionTutorial'
-import { X, Pencil, Loader2, Copy, Trash2, GripVertical, Plus, ChevronDown, ChevronRight, Play, TrendingUp, Sparkles, FileText, AlertTriangle, Eye, Shield, ShieldCheck, Download, Check, PenTool, Wrench, ClipboardCheck, SlidersHorizontal, Clock } from 'lucide-react'
+import { X, Pencil, Loader2, Copy, Trash2, GripVertical, Plus, ChevronDown, ChevronRight, Play, TrendingUp, Sparkles, FileText, AlertTriangle, Eye, Shield, ShieldCheck, Download, Check, PenTool, Wrench, ClipboardCheck, SlidersHorizontal, Clock, Link2 } from 'lucide-react'
 import { useWorkspace } from '../../contexts/WorkspaceContext'
 import { useToast } from '../../contexts/ToastContext'
 import { useAuth } from '../../hooks/useAuth'
+import { useShareLink } from '../../lib/shareLink'
+import { useConfirm } from '../shared/useConfirm'
 import { useSearchSetItems } from '../../hooks/useExtractions'
 import {
   getSearchSet,
@@ -75,6 +77,8 @@ export function ExtractionEditorPanel() {
   const { openExtractionId, openExtraction, closeExtraction, selectedDocUuids, selectedDocNames, setHighlightTerms, bumpActivitySignal, consumeExtractionResults } = useWorkspace()
   const { toast } = useToast()
   const { user } = useAuth()
+  const shareLink = useShareLink()
+  const confirm = useConfirm()
   const [searchSet, setSearchSet] = useState<SearchSet | null>(null)
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState<Tab>('design')
@@ -299,6 +303,17 @@ export function ExtractionEditorPanel() {
 
   const handleDelete = async () => {
     if (!openExtractionId) return
+    const ok = await confirm({
+      title: 'Delete extraction?',
+      message: (
+        <>
+          Are you sure you want to delete <strong>{searchSet?.title || 'this extraction'}</strong>? This action cannot be undone.
+        </>
+      ),
+      confirmLabel: 'Delete',
+      destructive: true,
+    })
+    if (!ok) return
     await deleteSearchSet(openExtractionId)
     closeExtraction()
   }
@@ -476,6 +491,22 @@ export function ExtractionEditorPanel() {
             {selectedDocUuids.length} document{selectedDocUuids.length !== 1 ? 's' : ''} selected
           </div>
         </div>
+        <button
+          onClick={() => shareLink('extraction', searchSet.uuid, searchSet.title)}
+          title="Copy share link"
+          style={{
+            background: 'none',
+            border: 'none',
+            cursor: 'pointer',
+            padding: 4,
+            borderRadius: 4,
+            color: '#5f6368',
+            display: 'flex',
+            flexShrink: 0,
+          }}
+        >
+          <Link2 style={{ width: 18, height: 18 }} />
+        </button>
         <button
           onClick={closeExtraction}
           style={{

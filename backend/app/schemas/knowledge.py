@@ -22,6 +22,15 @@ class AddDocumentsRequest(BaseModel):
     document_uuids: list[str]
 
 
+class ConvertDocumentsRequest(BaseModel):
+    """Wrap one or more SmartDocuments in a new KB so they can be retrieved
+    instead of inlined. Used by the chat / workflow "Convert to Knowledge
+    Base" affordance shown when a doc is too large for the current model.
+    """
+    document_uuids: list[str]
+    title: Optional[str] = None  # defaults to the first doc's title
+
+
 class ShareKBRequest(BaseModel):
     comment: Optional[str] = None
 
@@ -40,6 +49,7 @@ class KBSourceResponse(BaseModel):
     document_title: Optional[str] = None  # Resolved from SmartDocument for display
     url: Optional[str] = None
     url_title: Optional[str] = None
+    custom_name: Optional[str] = None  # user-provided label; UI prefers this over title/url
     status: str
     error_message: Optional[str] = None
     chunk_count: int = 0
@@ -62,12 +72,18 @@ class KBSourceDetailResponse(KBSourceResponse):
     processed_at: Optional[str] = None
 
 
+class UpdateSourceRequest(BaseModel):
+    """Patch a single KB source. Empty string clears the custom name."""
+    custom_name: Optional[str] = None
+
+
 class KBResponse(BaseModel):
     uuid: str
     title: str
     description: Optional[str] = None
     status: str
     shared_with_team: bool = False
+    team_owned: bool = False
     verified: bool = False
     organization_ids: list[str] = []
     tags: list[str] = []
@@ -140,6 +156,7 @@ class KBExportSource(BaseModel):
     document_title: Optional[str] = None  # snapshot of SmartDocument.title at export time
     url: Optional[str] = None
     url_title: Optional[str] = None
+    custom_name: Optional[str] = None  # user's chosen label, carried across export/import
     content: Optional[str] = None  # cached raw text (for URLs) or document raw_text (for docs)
     crawl_enabled: bool = False
     max_crawl_pages: int = 5

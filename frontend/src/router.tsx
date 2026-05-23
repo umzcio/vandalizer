@@ -47,6 +47,7 @@ function CertificationRedirect() {
         extraction: undefined,
         automation: undefined,
         kb: undefined,
+        workflow_share_token: undefined,
       },
     })
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
@@ -72,6 +73,7 @@ const landingRoute = createRoute({
     error: (search.error as string) || undefined,
     invite_token: (search.invite_token as string) || undefined,
     admin: (search.admin as string) || undefined,
+    next: (search.next as string) || undefined,
   }),
   component: Landing,
 })
@@ -89,7 +91,7 @@ const loginRoute = createRoute({
 const registerRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/register',
-  component: () => <Navigate to="/landing" search={{ error: undefined, invite_token: undefined, admin: undefined }} />,
+  component: () => <Navigate to="/landing" search={{ error: undefined, invite_token: undefined, admin: undefined, next: undefined }} />,
 })
 
 const resetPasswordRoute = createRoute({
@@ -140,6 +142,9 @@ const indexRoute = createRoute({
     extraction: ((search.extraction as string) || (search.openExtraction as string) || undefined),
     automation: (search.automation as string) || undefined,
     kb: (search.kb as string) || undefined,
+    // Share-link tokens — present when arriving from a "Copy share link" URL
+    // and used to gate view-only access for users without team membership.
+    workflow_share_token: (search.workflow_share_token as string) || undefined,
   }),
   component: () => (
     <ProtectedRoute>
@@ -182,13 +187,13 @@ const workflowEditorRoute = createRoute({
 const chatRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/chat',
-  component: () => <Navigate to="/" search={{ mode: undefined, tab: undefined, workflow: undefined, extraction: undefined, automation: undefined, kb: undefined }} />,
+  component: () => <Navigate to="/" search={{ mode: undefined, tab: undefined, workflow: undefined, extraction: undefined, automation: undefined, kb: undefined, workflow_share_token: undefined }} />,
 })
 
 const libraryRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/library',
-  component: () => <Navigate to="/" search={{ mode: undefined, tab: 'library', workflow: undefined, extraction: undefined, automation: undefined, kb: undefined }} />,
+  component: () => <Navigate to="/" search={{ mode: undefined, tab: 'library', workflow: undefined, extraction: undefined, automation: undefined, kb: undefined, workflow_share_token: undefined }} />,
 })
 
 const adminRoute = createRoute({
@@ -333,13 +338,13 @@ const approvalsRoute = createRoute({
 const officeRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/office',
-  component: () => <Navigate to="/" search={{ mode: undefined, tab: undefined, workflow: undefined, extraction: undefined, automation: undefined, kb: undefined }} />,
+  component: () => <Navigate to="/" search={{ mode: undefined, tab: undefined, workflow: undefined, extraction: undefined, automation: undefined, kb: undefined, workflow_share_token: undefined }} />,
 })
 
 const browserAutomationRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/browser-automation',
-  component: () => <Navigate to="/" search={{ mode: undefined, tab: undefined, workflow: undefined, extraction: undefined, automation: undefined, kb: undefined }} />,
+  component: () => <Navigate to="/" search={{ mode: undefined, tab: undefined, workflow: undefined, extraction: undefined, automation: undefined, kb: undefined, workflow_share_token: undefined }} />,
 })
 
 const demoStatusRoute = createRoute({

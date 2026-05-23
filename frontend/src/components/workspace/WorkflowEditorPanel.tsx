@@ -8,11 +8,12 @@ import {
   ChevronDown, ChevronRight, ArrowUp, ArrowDown,
   Circle, Hand, Keyboard, Sparkles, ShieldCheck, Type,
   ArrowRight, Pause, TrendingUp, RefreshCw,
-  Upload, Clock, Copy, Check, FolderInput,
+  Upload, Clock, Copy, Check, FolderInput, Link2,
 } from 'lucide-react'
 import { useWorkspace } from '../../contexts/WorkspaceContext'
 import { useToast } from '../../contexts/ToastContext'
 import { useAuth } from '../../hooks/useAuth'
+import { useShareLink } from '../../lib/shareLink'
 import {
   getWorkflow, addStep, deleteStep, addTask, deleteTask, updateTask,
   updateWorkflow, updateStep, downloadResults, testStep, getTestStepStatus,
@@ -27,7 +28,8 @@ import { RunHistoryTab } from './RunHistoryTab'
 import type { ValidationCheck, ValidationCheckDefinition, ValidationInputDefinition, QualityHistoryRun, BatchStatus, WorkflowQualityStatus, PromptImprovement } from '../../api/workflows'
 import { ItemPickerModal } from './ItemPickerModal'
 import { getModels } from '../../api/config'
-import { searchDocuments } from '../../api/documents'
+import { searchDocuments, pollStatus as pollDocumentStatus } from '../../api/documents'
+import { convertDocumentsToKB } from '../../api/knowledge'
 import { listCredentials } from '../../api/credentials'
 import type { Credential } from '../../types/credential'
 import { uploadFile } from '../../api/files'
@@ -36,7 +38,7 @@ import { listAllFolders } from '../../api/folders'
 import type { KnowledgeBase } from '../../types/knowledge'
 import { listItems as listSearchSetItems, suggestFields } from '../../api/extractions'
 import { useWorkflowRunner } from '../../hooks/useWorkflowRunner'
-import type { Workflow, WorkflowStep, WorkflowTask, WorkflowStatus, ModelInfo, SearchSetItem } from '../../types/workflow'
+import type { Workflow, WorkflowStep, WorkflowTask, WorkflowStatus, WorkflowCitation, ModelInfo, SearchSetItem } from '../../types/workflow'
 import { DocumentPickerDialog } from '../shared/DocumentPickerDialog'
 import DOMPurify from 'dompurify'
 import { marked } from 'marked'
@@ -193,7 +195,8 @@ export function WorkflowEditorPanel() {
   const queryClient = useQueryClient()
   const { toast } = useToast()
   const { user } = useAuth()
-  const { openWorkflowId, openWorkflow, closeWorkflow, consumeWorkflowSession, selectedDocUuids, bumpActivitySignal } = useWorkspace()
+  const shareLink = useShareLink()
+  const { openWorkflowId, openWorkflowShareToken, openWorkflow, closeWorkflow, consumeWorkflowSession, selectedDocUuids, bumpActivitySignal } = useWorkspace()
   const [workflow, setWorkflow] = useState<Workflow | null>(null)
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState<Tab>('design')
@@ -242,7 +245,7 @@ export function WorkflowEditorPanel() {
     if (!openWorkflowId) return
     setLoading(true)
     try {
-      const wf = await getWorkflow(openWorkflowId)
+      const wf = await getWorkflow(openWorkflowId, openWorkflowShareToken ?? undefined)
       setWorkflow(wf)
     } catch {
       setWorkflow(null)
@@ -251,7 +254,7 @@ export function WorkflowEditorPanel() {
     }
     refreshSparkline()
     getWorkflowQualityStatus(openWorkflowId).then(setQualityStatus).catch(() => {})
-  }, [openWorkflowId, refreshSparkline])
+  }, [openWorkflowId, openWorkflowShareToken, refreshSparkline])
 
   useEffect(() => { refresh() }, [refresh])
 
@@ -446,7 +449,7 @@ export function WorkflowEditorPanel() {
     if (!openWorkflowId || duplicating) return
     setDuplicating(true)
     try {
-      const copy = (await duplicateWorkflow(openWorkflowId)) as { id?: string }
+      const copy = (await duplicateWorkflow(openWorkflowId, openWorkflowShareToken ?? undefined)) as { id?: string }
       if (copy?.id) {
         toast('Copied workflow — opening your editable version', 'success')
         openWorkflow(copy.id)
@@ -568,6 +571,15 @@ export function WorkflowEditorPanel() {
               }
             }}
           />
+          {canManage && (
+            <button
+              onClick={() => shareLink('workflow', workflow.id, workflow.name)}
+              title="Copy share link"
+              style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, borderRadius: 4, color: '#5f6368', display: 'flex', flexShrink: 0 }}
+            >
+              <Link2 style={{ width: 18, height: 18 }} />
+            </button>
+          )}
           <button
             onClick={closeWorkflow}
             style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, borderRadius: 4, color: '#5f6368', display: 'flex', flexShrink: 0 }}
@@ -1853,6 +1865,7 @@ function TaskEditModal({ task, selectedDocUuids, workflow, workflowId, onClose, 
   onRefreshWorkflow: () => void
 }) {
   const { user } = useAuth()
+  const { selectedDocNames } = useWorkspace()
   const [taskData, setTaskData] = useState<Record<string, unknown>>({ ...task.data })
   const [saving, setSaving] = useState(false)
   const [subTab, setSubTab] = useState<TaskSubTab>('design')
@@ -1879,8 +1892,20 @@ function TaskEditModal({ task, selectedDocUuids, workflow, workflowId, onClose, 
     (task.data.selected_document_uuid as string) || ''
   )
   const [docSearchQuery, setDocSearchQuery] = useState('')
+  const [selectedDocTitle, setSelectedDocTitle] = useState('')
   const [docSearchResults, setDocSearchResults] = useState<{ uuid: string; title: string }[]>([])
   const [showDocDropdown, setShowDocDropdown] = useState(false)
+
+  // Saved tasks only store the UUID — fetch the title so the chip shows the
+  // filename instead of a raw UUID when the editor reopens.
+  useEffect(() => {
+    if (!selectedDocUuid) { setSelectedDocTitle(''); return }
+    let cancelled = false
+    pollDocumentStatus(selectedDocUuid)
+      .then(res => { if (!cancelled && res?.title) setSelectedDocTitle(res.title) })
+      .catch(() => { /* leave title empty; chip will fall back to UUID */ })
+    return () => { cancelled = true }
+  }, [selectedDocUuid])
 
   // Fixed documents for workflow_documents input source
   const inputCfg = (workflow as unknown as Record<string, unknown>)?.input_config as Record<string, unknown> | undefined
@@ -3373,7 +3398,8 @@ function TaskEditModal({ task, selectedDocUuids, workflow, workflowId, onClose, 
               Data Sources
             </div>
             <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 12 }}>
-              Pick one or more. When multiple are selected, the LLM sees each in a labeled section.
+              Pick one or more. Multiple selections are combined in labeled sections — e.g.,
+              check Step Input + Workflow Documents to give this step both the prior output and the original documents.
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {/* Step Input */}
@@ -3391,7 +3417,8 @@ function TaskEditModal({ task, selectedDocUuids, workflow, workflowId, onClose, 
                 <div>
                   <div style={{ fontSize: 13, fontWeight: 600, color: '#202124' }}>Step Input</div>
                   <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>
-                    Use the output from the previous step as input for this task.
+                    Only the output of the immediately previous step — no documents, no earlier
+                    steps. Pair with another source to also include document context.
                   </div>
                 </div>
               </label>
@@ -3411,7 +3438,8 @@ function TaskEditModal({ task, selectedDocUuids, workflow, workflowId, onClose, 
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: 13, fontWeight: 600, color: '#202124' }}>Select a Document</div>
                   <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>
-                    Choose a specific document to use as input.
+                    A single document pinned to this step now — used every run, regardless of
+                    what triggered the workflow.
                   </div>
                   {wantsSelectDocument && (
                     <div style={{ marginTop: 8, position: 'relative' }}>
@@ -3444,6 +3472,7 @@ function TaskEditModal({ task, selectedDocUuids, workflow, workflowId, onClose, 
                               key={doc.uuid}
                               onMouseDown={() => {
                                 setSelectedDocUuid(doc.uuid)
+                                setSelectedDocTitle(doc.title)
                                 setDocSearchQuery(doc.title)
                                 setShowDocDropdown(false)
                               }}
@@ -3469,9 +3498,14 @@ function TaskEditModal({ task, selectedDocUuids, workflow, workflowId, onClose, 
                           padding: '6px 10px', backgroundColor: '#f3f4f6', borderRadius: 6, fontSize: 12,
                         }}>
                           <FileText style={{ width: 12, height: 12, color: '#6b7280' }} />
-                          <span style={{ color: '#374151', flex: 1 }}>{docSearchQuery || selectedDocUuid}</span>
+                          <span
+                            style={{ color: '#374151', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                            title={selectedDocTitle ? `${selectedDocTitle} (${selectedDocUuid})` : selectedDocUuid}
+                          >
+                            {selectedDocTitle || selectedDocUuid}
+                          </span>
                           <button
-                            onClick={() => { setSelectedDocUuid(''); setDocSearchQuery('') }}
+                            onClick={() => { setSelectedDocUuid(''); setSelectedDocTitle(''); setDocSearchQuery('') }}
                             style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2, color: '#9ca3af', display: 'flex' }}
                           >
                             <X style={{ width: 12, height: 12 }} />
@@ -3498,7 +3532,8 @@ function TaskEditModal({ task, selectedDocUuids, workflow, workflowId, onClose, 
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: 13, fontWeight: 600, color: '#202124' }}>Workflow Documents</div>
                   <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>
-                    Use the documents selected when the workflow runs, plus any fixed documents.
+                    The documents the workflow was triggered with this run, plus any fixed
+                    documents pinned below at the workflow level.
                   </div>
 
                   {wantsWorkflowDocs && (
@@ -3640,6 +3675,34 @@ function TaskEditModal({ task, selectedDocUuids, workflow, workflowId, onClose, 
                           </>
                         )}
                       </div>
+
+                      {/* Quick add selected docs from file browser */}
+                      {(() => {
+                        const existing = new Set(fixedDocs.map(d => d.uuid))
+                        const addable = selectedDocUuids.filter(uuid => !existing.has(uuid))
+                        if (addable.length === 0) return null
+                        return (
+                          <button
+                            onClick={() => {
+                              for (const uuid of addable) {
+                                addFixedDoc({
+                                  uuid,
+                                  title: selectedDocNames[uuid] || `Document ${uuid.slice(0, 8)}`,
+                                })
+                              }
+                            }}
+                            style={{
+                              marginTop: 8, display: 'inline-flex', alignItems: 'center', gap: 4,
+                              padding: '6px 12px', fontSize: 12, fontWeight: 500, fontFamily: 'inherit',
+                              borderRadius: 6, border: '1px dashed #93c5fd', backgroundColor: '#eff6ff',
+                              color: '#1d4ed8', cursor: 'pointer',
+                            }}
+                          >
+                            <Plus style={{ width: 12, height: 12 }} />
+                            Add {addable.length} selected document{addable.length !== 1 ? 's' : ''}
+                          </button>
+                        )
+                      })()}
                     </div>
                   )}
                 </div>
@@ -4075,12 +4138,124 @@ function WorkflowOutputCard({ status, sessionId, workflowName, running, runElaps
 
       {/* Error */}
       {isError && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: '#dc2626', fontWeight: 500 }}>
-          <XCircle style={{ width: 16, height: 16 }} />
-          Failed
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, fontSize: 13, color: '#dc2626', fontWeight: 500 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <XCircle style={{ width: 16, height: 16 }} />
+            {status?.error || 'Failed'}
+          </div>
+          {status?.error_payload?.suggested_action === 'convert_to_kb' && (status?.error_payload?.oversize_documents?.length ?? 0) > 0 && (
+            <ConvertWorkflowDocsButton
+              docs={status.error_payload?.oversize_documents ?? []}
+            />
+          )}
+        </div>
+      )}
+
+      {/* Sources from KB query steps */}
+      {(status?.retrieved_sources?.length ?? 0) > 0 && (
+        <WorkflowSourcesPanel sources={status?.retrieved_sources ?? []} />
+      )}
+    </div>
+  )
+}
+
+function WorkflowSourcesPanel({ sources }: { sources: WorkflowCitation[] }) {
+  const [expanded, setExpanded] = useState(false)
+  return (
+    <div style={{ marginTop: 4, borderTop: '1px solid #e5e7eb', paddingTop: 8 }}>
+      <button
+        onClick={() => setExpanded(e => !e)}
+        style={{
+          display: 'flex', alignItems: 'center', gap: 4, padding: 0,
+          background: 'transparent', border: 'none', cursor: 'pointer',
+          fontSize: 12, fontWeight: 600, color: '#374151', fontFamily: 'inherit',
+        }}
+      >
+        <ChevronRight
+          size={14}
+          style={{ transform: expanded ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.15s' }}
+        />
+        Sources ({sources.length})
+      </button>
+      {expanded && (
+        <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+          {sources.map((c, i) => {
+            const locator = typeof c.page === 'number' ? `p. ${c.page}` : (c.sheet || null)
+            const label = locator ? `${c.document_title} · ${locator}` : c.document_title
+            return (
+              <span
+                key={`${c.chunk_id ?? c.document_id ?? i}`}
+                title={c.content_preview || ''}
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 4,
+                  padding: '2px 8px', fontSize: 11, fontWeight: 500,
+                  backgroundColor: '#f3f4f6', color: '#374151',
+                  border: '1px solid #e5e7eb', borderRadius: 999,
+                  cursor: 'help',
+                }}
+              >
+                {label}
+              </span>
+            )
+          })}
         </div>
       )}
     </div>
+  )
+}
+
+function ConvertWorkflowDocsButton({
+  docs,
+}: { docs: Array<{ uuid: string; title: string; token_count: number }> }) {
+  const [converting, setConverting] = useState(false)
+  const [convertedKB, setConvertedKB] = useState<{ uuid: string; title: string } | null>(null)
+  const { toast } = useToast()
+
+  const handleConvert = async () => {
+    setConverting(true)
+    try {
+      const kb = await convertDocumentsToKB(docs.map(d => d.uuid))
+      setConvertedKB({ uuid: kb.uuid, title: kb.title })
+      toast(
+        `Created Knowledge Base "${kb.title}". Add a Knowledge Base Query step to use it.`,
+        'success',
+      )
+    } catch (e) {
+      toast(
+        e instanceof Error ? e.message : 'Could not convert documents to a Knowledge Base.',
+        'error',
+      )
+    } finally {
+      setConverting(false)
+    }
+  }
+
+  if (convertedKB) {
+    return (
+      <div style={{ fontSize: 12, fontWeight: 400, color: '#374151' }}>
+        Knowledge Base <strong>{convertedKB.title}</strong> is being built. Edit the workflow:
+        replace the oversized document(s) with a <strong>Knowledge Base Query</strong> step
+        targeting it.
+      </div>
+    )
+  }
+
+  return (
+    <button
+      onClick={handleConvert}
+      disabled={converting}
+      style={{
+        alignSelf: 'flex-start',
+        display: 'inline-flex', alignItems: 'center', gap: 6,
+        padding: '6px 10px', fontSize: 12, fontWeight: 600, fontFamily: 'inherit',
+        border: '1px solid #dc2626', borderRadius: 6,
+        backgroundColor: '#dc2626', color: '#fff',
+        cursor: converting ? 'not-allowed' : 'pointer',
+        opacity: converting ? 0.6 : 1,
+      }}
+    >
+      {converting ? 'Converting…' : 'Convert to Knowledge Base'}
+    </button>
   )
 }
 
@@ -4781,9 +4956,13 @@ function FixedDocumentsZone({
   onAddDocs: (docs: { uuid: string; title: string }[]) => Promise<void> | void
   onRemoveDoc: (uuid: string) => void
 }) {
+  const { selectedDocUuids, selectedDocNames } = useWorkspace()
   const [dragOver, setDragOver] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [showPicker, setShowPicker] = useState(false)
+
+  const existingUuids = new Set(fixedDocs.map(d => d.uuid))
+  const addableSelected = selectedDocUuids.filter(uuid => !existingUuids.has(uuid))
 
   const handleFileUpload = async (file: File) => {
     setUploading(true)
@@ -4899,6 +5078,27 @@ function FixedDocumentsZone({
           </>
         )}
       </div>
+
+      {addableSelected.length > 0 && (
+        <button
+          onClick={async () => {
+            const docs = addableSelected.map(uuid => ({
+              uuid,
+              title: selectedDocNames[uuid] || `Document ${uuid.slice(0, 8)}`,
+            }))
+            await onAddDocs(docs)
+          }}
+          style={{
+            marginTop: 8, display: 'inline-flex', alignItems: 'center', gap: 4,
+            padding: '6px 12px', fontSize: 12, fontWeight: 500, fontFamily: 'inherit',
+            borderRadius: 6, border: '1px dashed #93c5fd', backgroundColor: '#eff6ff',
+            color: '#1d4ed8', cursor: 'pointer',
+          }}
+        >
+          <Plus style={{ width: 12, height: 12 }} />
+          Add {addableSelected.length} selected document{addableSelected.length !== 1 ? 's' : ''}
+        </button>
+      )}
 
       {showPicker && (
         <DocumentPickerDialog

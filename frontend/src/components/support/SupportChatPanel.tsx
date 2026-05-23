@@ -2,14 +2,19 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import {
   ArrowLeft,
+  Check,
   CheckCircle2,
   Circle,
   Clock,
+  Eye,
   Loader2,
+  Lock,
   MessageSquare,
   Paperclip,
+  Pencil,
   Plus,
   Send,
+  UserPlus,
   X,
 } from 'lucide-react'
 import { useAuth } from '../../hooks/useAuth'
@@ -101,6 +106,8 @@ function TicketListView({
           <>
             {open.map((t) => {
               const attention = needsAttention(t)
+              const isWatching = t.user_id !== currentUserId
+                && (t.watcher_ids ?? []).includes(currentUserId)
               return (
                 <button
                   key={t.uuid}
@@ -117,7 +124,19 @@ function TicketListView({
                           Check-in
                         </span>
                       )}
+                      {isWatching && (
+                        <span
+                          className="shrink-0 inline-flex items-center gap-0.5 rounded bg-indigo-50 px-1 py-0.5 text-[9px] font-bold uppercase text-indigo-700"
+                          title="You were tagged on this ticket"
+                        >
+                          <Eye className="h-2.5 w-2.5" />
+                          Watching
+                        </span>
+                      )}
                       <p className={`truncate text-sm ${attention ? 'font-semibold text-gray-900' : 'font-medium text-gray-900'}`}>
+                        {t.ticket_number != null && (
+                          <span className="mr-1 font-mono text-[11px] text-gray-400">#{t.ticket_number}</span>
+                        )}
                         {t.subject}
                       </p>
                       {attention && (
@@ -154,7 +173,12 @@ function TicketListView({
                   >
                     <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${STATUS_DOT.closed}`} />
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm text-gray-700">{t.subject}</p>
+                      <p className="truncate text-sm text-gray-700">
+                        {t.ticket_number != null && (
+                          <span className="mr-1 font-mono text-[11px] text-gray-400">#{t.ticket_number}</span>
+                        )}
+                        {t.subject}
+                      </p>
                     </div>
                     <span className="text-[10px] text-gray-400">{timeAgo(t.updated_at)}</span>
                   </button>
@@ -335,41 +359,59 @@ function AttachmentChip({
   attachment: a,
   ticketUuid,
   onPreview,
+  onDelete,
 }: {
   attachment: import('../../types/support').SupportAttachment
   ticketUuid: string
   onPreview: (a: import('../../types/support').SupportAttachment) => void
+  onDelete?: () => void
 }) {
   const [imgBroken, setImgBroken] = useState(false)
   const isImage = a.file_type?.startsWith('image/') && !imgBroken
   const downloadUrl = `/api/support/tickets/${ticketUuid}/attachments/${a.uuid}`
 
+  const removeButton = onDelete && (
+    <button
+      onClick={(e) => { e.stopPropagation(); e.preventDefault(); onDelete() }}
+      title="Remove attachment"
+      className="absolute -top-1.5 -right-1.5 inline-flex h-5 w-5 items-center justify-center rounded-full border border-gray-200 bg-white text-gray-500 shadow-sm hover:text-red-600"
+    >
+      <X className="h-3 w-3" />
+    </button>
+  )
+
   if (isImage) {
     return (
-      <button
-        onClick={() => onPreview(a)}
-        className="block rounded-lg overflow-hidden border border-gray-200 hover:border-blue-400 transition-colors cursor-pointer"
-        title={a.filename}
-      >
-        <img
-          src={downloadUrl}
-          alt={a.filename}
-          className="max-w-[220px] max-h-[160px] object-cover"
-          onError={() => setImgBroken(true)}
-        />
-      </button>
+      <div className="relative inline-block">
+        <button
+          onClick={() => onPreview(a)}
+          className="block rounded-lg overflow-hidden border border-gray-200 hover:border-blue-400 transition-colors cursor-pointer"
+          title={a.filename}
+        >
+          <img
+            src={downloadUrl}
+            alt={a.filename}
+            className="max-w-[220px] max-h-[160px] object-cover"
+            onError={() => setImgBroken(true)}
+          />
+        </button>
+        {removeButton}
+      </div>
     )
   }
 
   return (
-    <a
-      href={downloadUrl}
-      download={a.filename}
-      className="inline-flex items-center gap-1.5 rounded-lg bg-white px-2.5 py-1.5 text-xs text-blue-600 border border-gray-200 hover:border-blue-400 hover:bg-blue-50 transition-colors"
-    >
-      <Paperclip className="h-3 w-3" />
-      {a.filename}
-    </a>
+    <div className="relative inline-block">
+      <a
+        href={downloadUrl}
+        download={a.filename}
+        className="inline-flex items-center gap-1.5 rounded-lg bg-white px-2.5 py-1.5 text-xs text-blue-600 border border-gray-200 hover:border-blue-400 hover:bg-blue-50 transition-colors"
+      >
+        <Paperclip className="h-3 w-3" />
+        {a.filename}
+      </a>
+      {removeButton}
+    </div>
   )
 }
 
@@ -391,9 +433,13 @@ function ChatView({
   const [ticket, setTicket] = useState<SupportTicket | null>(null)
   const [loading, setLoading] = useState(true)
   const [message, setMessage] = useState('')
+  const [isInternalNote, setIsInternalNote] = useState(false)
   const [sending, setSending] = useState(false)
   const [updatingStatus, setUpdatingStatus] = useState(false)
   const [previewAttachment, setPreviewAttachment] = useState<import('../../types/support').SupportAttachment | null>(null)
+  const [editingMessageUuid, setEditingMessageUuid] = useState<string | null>(null)
+  const [editDraft, setEditDraft] = useState('')
+  const [savingEdit, setSavingEdit] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -427,9 +473,12 @@ function ChatView({
     if (!message.trim() || sending) return
     setSending(true)
     try {
-      const updated = await supportApi.addMessage(ticketUuid, message.trim())
+      const updated = await supportApi.addMessage(ticketUuid, message.trim(), {
+        isInternalNote,
+      })
       setTicket(updated)
       setMessage('')
+      setIsInternalNote(false)
       onTicketUpdated()
     } catch {
       toast('Failed to send message', 'error')
@@ -446,22 +495,73 @@ function ChatView({
   }
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
+    const picked = Array.from(e.target.files ?? [])
     if (fileInputRef.current) fileInputRef.current.value = ''
-    const sizeMB = (file.size / (1024 * 1024)).toFixed(1)
-    if (file.size > 10 * 1024 * 1024) {
-      toast(`File is ${sizeMB}MB. Must be under 10MB.`, 'error')
-      return
+    if (picked.length === 0) return
+    const accepted: File[] = []
+    for (const f of picked) {
+      const sizeMB = (f.size / (1024 * 1024)).toFixed(1)
+      if (f.size > 10 * 1024 * 1024) {
+        toast(`${f.name} is ${sizeMB}MB. Must be under 10MB.`, 'error')
+        continue
+      }
+      accepted.push(f)
     }
-    toast(`Uploading ${file.name} (${sizeMB}MB)...`, 'info')
+    if (accepted.length === 0) return
+    toast(
+      accepted.length === 1
+        ? `Uploading ${accepted[0].name}...`
+        : `Uploading ${accepted.length} files...`,
+      'info',
+    )
     try {
-      const updated = await supportApi.addAttachment(ticketUuid, file)
+      const updated = await supportApi.addAttachment(ticketUuid, accepted)
       setTicket(updated)
-      toast('File attached', 'success')
+      toast(
+        accepted.length === 1 ? 'File attached' : `${accepted.length} files attached`,
+        'success',
+      )
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Upload failed'
       toast(`Failed to upload file: ${msg}`, 'error')
+    }
+  }
+
+  const handleDeleteAttachment = async (attachmentUuid: string, filename: string) => {
+    if (!window.confirm(`Remove "${filename}" from this ticket?`)) return
+    try {
+      const updated = await supportApi.deleteAttachment(ticketUuid, attachmentUuid)
+      setTicket(updated)
+      toast('Attachment removed', 'success')
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'Failed to remove attachment', 'error')
+    }
+  }
+
+  const startEdit = (msg: import('../../types/support').SupportMessage) => {
+    setEditingMessageUuid(msg.uuid)
+    setEditDraft(msg.content)
+  }
+
+  const cancelEdit = () => {
+    setEditingMessageUuid(null)
+    setEditDraft('')
+  }
+
+  const saveEdit = async () => {
+    if (!editingMessageUuid) return
+    const trimmed = editDraft.trim()
+    if (!trimmed) return
+    setSavingEdit(true)
+    try {
+      const updated = await supportApi.editMessage(ticketUuid, editingMessageUuid, trimmed)
+      setTicket(updated)
+      cancelEdit()
+    } catch (err) {
+      const m = err instanceof Error ? err.message : 'Could not save edit'
+      toast(m, 'error')
+    } finally {
+      setSavingEdit(false)
     }
   }
 
@@ -507,7 +607,12 @@ function ChatView({
             <ArrowLeft className="h-4 w-4" />
           </button>
           <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-medium text-gray-900">{ticket.subject}</p>
+            <p className="truncate text-sm font-medium text-gray-900">
+              {ticket.ticket_number != null && (
+                <span className="mr-1 font-mono text-[11px] text-gray-400">#{ticket.ticket_number}</span>
+              )}
+              {ticket.subject}
+            </p>
             <div className="flex items-center gap-2">
               <StatusIcon className={`h-3 w-3 ${
                 ticket.status === 'closed' ? 'text-gray-400' : ticket.status === 'in_progress' ? 'text-blue-500' : 'text-yellow-500'
@@ -561,37 +666,137 @@ function ChatView({
             )}
           </div>
         )}
+
+        {/* Watchers — visible to everyone on the ticket */}
+        <WatcherBar
+          ticket={ticket}
+          currentUserId={user?.user_id ?? ''}
+          onChange={setTicket}
+        />
       </div>
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
         {ticket.messages.map((msg) => {
           const isMe = msg.user_id === user?.user_id
+          const isInternal = msg.is_internal_note
+          const isEditing = editingMessageUuid === msg.uuid
           const msgAttachments = ticket.attachments.filter(a => a.message_uuid === msg.uuid)
+          // Internal notes span the full row with a yellow card so agents
+          // never confuse them with a real reply to the requester.
+          const wrapperClass = isInternal
+            ? 'group flex flex-col items-stretch'
+            : `group flex flex-col ${isMe ? 'items-end' : 'items-start'}`
+          const bubbleClass = isInternal
+            ? 'w-full rounded-xl border border-yellow-500 border-l-[5px] border-l-yellow-600 bg-yellow-100 px-3 py-2 text-yellow-900'
+            : `max-w-[85%] rounded-xl px-3 py-2 ${
+                isMe ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-900'
+              }`
           return (
-            <div key={msg.uuid} className={`flex flex-col ${isMe ? 'items-end' : 'items-start'}`}>
-              <div
-                className={`max-w-[85%] rounded-xl px-3 py-2 ${
-                  isMe
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-gray-100 text-gray-900'
-                }`}
-              >
-                {!isMe && (
+            <div key={msg.uuid} className={wrapperClass}>
+              <div className={bubbleClass}>
+                {isInternal && (
+                  <div className="mb-1.5 flex items-center justify-between gap-2 border-b border-dashed border-yellow-500 pb-1.5">
+                    <span className="inline-flex items-center gap-1 rounded bg-yellow-300 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-yellow-900">
+                      <Lock className="h-2.5 w-2.5" />
+                      Internal note · Agents only
+                    </span>
+                    <span className="text-[9px] italic text-yellow-800">
+                      Not visible to the requester
+                    </span>
+                  </div>
+                )}
+                {!isMe && !isInternal && (
                   <p className="mb-0.5 text-[10px] font-medium text-gray-500">
                     {msg.user_name || 'Support'}
                   </p>
                 )}
-                <p className="whitespace-pre-wrap text-sm">{msg.content}</p>
-                <p className={`mt-1 text-[10px] ${isMe ? 'text-blue-200' : 'text-gray-400'}`}>
+                {isInternal && (
+                  <p className="mb-0.5 text-[10px] font-medium text-yellow-800">
+                    {msg.user_name || msg.user_id}
+                  </p>
+                )}
+                {isEditing ? (
+                  <div className="flex flex-col gap-1.5">
+                    <textarea
+                      autoFocus
+                      value={editDraft}
+                      onChange={(e) => setEditDraft(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                          e.preventDefault()
+                          saveEdit()
+                        }
+                        if (e.key === 'Escape') {
+                          e.preventDefault()
+                          cancelEdit()
+                        }
+                      }}
+                      rows={Math.min(8, Math.max(2, editDraft.split('\n').length))}
+                      className={
+                        isInternal
+                          ? 'resize-none rounded-md px-2 py-1 text-sm text-gray-900 bg-white border border-yellow-400 focus:outline-none focus:ring-2 focus:ring-yellow-400'
+                          : 'resize-none rounded-md px-2 py-1 text-sm text-gray-900 bg-white/95 focus:outline-none focus:ring-2 focus:ring-blue-300'
+                      }
+                    />
+                    <div className="flex items-center justify-end gap-1">
+                      <button
+                        onClick={cancelEdit}
+                        disabled={savingEdit}
+                        className={
+                          isInternal
+                            ? 'rounded px-2 py-0.5 text-[11px] font-medium text-yellow-900 hover:bg-yellow-200 disabled:opacity-50'
+                            : 'rounded px-2 py-0.5 text-[11px] font-medium text-white/90 hover:bg-white/10 disabled:opacity-50'
+                        }
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        onClick={saveEdit}
+                        disabled={savingEdit || !editDraft.trim()}
+                        className={
+                          isInternal
+                            ? 'inline-flex items-center gap-1 rounded bg-yellow-500 px-2 py-0.5 text-[11px] font-medium text-white hover:bg-yellow-600 disabled:opacity-50'
+                            : 'inline-flex items-center gap-1 rounded bg-white/20 px-2 py-0.5 text-[11px] font-medium text-white hover:bg-white/30 disabled:opacity-50'
+                        }
+                      >
+                        {savingEdit ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
+                        Save
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="whitespace-pre-wrap text-sm">{msg.content}</p>
+                )}
+                <p className={`mt-1 text-[10px] ${isInternal ? 'text-yellow-800' : (isMe ? 'text-blue-200' : 'text-gray-400')}`}>
                   {timeAgo(msg.created_at)}
+                  {msg.edited_at && <span className="ml-1 italic">(edited)</span>}
                 </p>
               </div>
+              {isMe && !isEditing && (
+                <button
+                  onClick={() => startEdit(msg)}
+                  className="mt-0.5 inline-flex items-center gap-0.5 rounded px-1 py-0.5 text-[10px] text-gray-400 opacity-0 transition-opacity hover:bg-gray-100 hover:text-gray-600 group-hover:opacity-100"
+                  title="Edit message"
+                >
+                  <Pencil className="h-2.5 w-2.5" />
+                  Edit
+                </button>
+              )}
               {msgAttachments.length > 0 && (
                 <div className={`flex flex-col gap-1.5 mt-1.5 max-w-[85%] ${isMe ? 'items-end' : 'items-start'}`}>
-                  {msgAttachments.map((a) => (
-                    <AttachmentChip key={a.uuid} attachment={a} ticketUuid={ticketUuid} onPreview={setPreviewAttachment} />
-                  ))}
+                  {msgAttachments.map((a) => {
+                    const canDelete = !!user && (isSupportAgent || a.uploaded_by === user.user_id)
+                    return (
+                      <AttachmentChip
+                        key={a.uuid}
+                        attachment={a}
+                        ticketUuid={ticketUuid}
+                        onPreview={setPreviewAttachment}
+                        onDelete={canDelete ? () => handleDeleteAttachment(a.uuid, a.filename) : undefined}
+                      />
+                    )
+                  })}
                 </div>
               )}
             </div>
@@ -600,9 +805,18 @@ function ChatView({
         {/* Orphan attachments (no message_uuid) */}
         {ticket.attachments.filter(a => !a.message_uuid).length > 0 && (
           <div className="flex flex-wrap gap-1.5 pt-2 border-t border-gray-100">
-            {ticket.attachments.filter(a => !a.message_uuid).map((a) => (
-              <AttachmentChip key={a.uuid} attachment={a} ticketUuid={ticketUuid} onPreview={setPreviewAttachment} />
-            ))}
+            {ticket.attachments.filter(a => !a.message_uuid).map((a) => {
+              const canDelete = !!user && (isSupportAgent || a.uploaded_by === user.user_id)
+              return (
+                <AttachmentChip
+                  key={a.uuid}
+                  attachment={a}
+                  ticketUuid={ticketUuid}
+                  onPreview={setPreviewAttachment}
+                  onDelete={canDelete ? () => handleDeleteAttachment(a.uuid, a.filename) : undefined}
+                />
+              )
+            })}
           </div>
         )}
         <div ref={messagesEndRef} />
@@ -647,7 +861,29 @@ function ChatView({
       )}
 
       {/* Input */}
-      <div className="border-t px-3 py-2">
+      <div className={`border-t px-3 py-2 ${isInternalNote ? 'bg-yellow-100' : ''}`}>
+        {isSupportAgent && (
+          <div className="mb-1.5 flex items-center justify-between">
+            <button
+              type="button"
+              onClick={() => setIsInternalNote((v) => !v)}
+              title={isInternalNote
+                ? 'Only other support agents will see this'
+                : 'Switch to an internal note — visible only to support agents'}
+              className={
+                isInternalNote
+                  ? 'inline-flex items-center gap-1 rounded-full border border-yellow-500 bg-yellow-200 px-2 py-0.5 text-[10px] font-semibold text-yellow-900'
+                  : 'inline-flex items-center gap-1 rounded-full border border-gray-300 px-2 py-0.5 text-[10px] font-semibold text-gray-500 hover:border-yellow-400 hover:text-yellow-700'
+              }
+            >
+              <Lock className="h-2.5 w-2.5" />
+              {isInternalNote ? 'Internal note' : 'Add internal note'}
+            </button>
+            {isInternalNote && (
+              <span className="text-[10px] italic text-yellow-800">Hidden from requester</span>
+            )}
+          </div>
+        )}
         <div className="flex items-end gap-1.5">
           <button
             onClick={() => fileInputRef.current?.click()}
@@ -656,24 +892,153 @@ function ChatView({
           >
             <Paperclip className="h-4 w-4" />
           </button>
-          <input ref={fileInputRef} type="file" className="hidden" onChange={handleFileUpload} />
+          <input ref={fileInputRef} type="file" multiple className="hidden" onChange={handleFileUpload} />
           <textarea
             value={message}
             onChange={(e) => setMessage(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder={ticket.status === 'closed' ? 'Reply to reopen...' : 'Type a message...'}
+            placeholder={
+              ticket.status === 'closed'
+                ? 'Reply to reopen...'
+                : isInternalNote
+                  ? 'Leave a note for other agents...'
+                  : 'Type a message...'
+            }
             rows={1}
-            className="flex-1 resize-none rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none"
+            className={`flex-1 resize-none rounded-lg px-3 py-1.5 text-sm focus:outline-none ${
+              isInternalNote
+                ? 'border border-yellow-400 bg-white focus:border-yellow-500'
+                : 'border border-gray-300 focus:border-blue-500'
+            }`}
           />
           <button
             onClick={handleSend}
             disabled={!message.trim() || sending}
-            className="rounded-lg bg-blue-600 p-1.5 text-white hover:bg-blue-700 disabled:opacity-50"
+            className={`rounded-lg p-1.5 text-white disabled:opacity-50 ${
+              isInternalNote ? 'bg-yellow-600 hover:bg-yellow-700' : 'bg-blue-600 hover:bg-blue-700'
+            }`}
           >
-            {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+            {sending ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : isInternalNote ? (
+              <Lock className="h-4 w-4" />
+            ) : (
+              <Send className="h-4 w-4" />
+            )}
           </button>
         </div>
       </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Watcher bar — tagged users who see and follow the ticket
+// ---------------------------------------------------------------------------
+
+function WatcherBar({
+  ticket,
+  currentUserId,
+  onChange,
+}: {
+  ticket: SupportTicket
+  currentUserId: string
+  onChange: (next: SupportTicket) => void
+}) {
+  const { toast } = useToast()
+  const [adding, setAdding] = useState(false)
+  const [email, setEmail] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  const watchers = ticket.watchers ?? []
+  // Anyone who can view the ticket can add/remove watchers from the UI; the
+  // backend enforces the actual rule (owner, support, or self-remove). We
+  // simplify the client by always showing controls and letting a 403 toast.
+
+  const submit = async () => {
+    const trimmed = email.trim()
+    if (!trimmed || busy) return
+    setBusy(true)
+    try {
+      const updated = await supportApi.addWatcher(ticket.uuid, trimmed)
+      onChange(updated)
+      setEmail('')
+      setAdding(false)
+      toast('Watcher added', 'success')
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Could not add watcher'
+      toast(msg, 'error')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const remove = async (userId: string) => {
+    try {
+      const updated = await supportApi.removeWatcher(ticket.uuid, userId)
+      onChange(updated)
+    } catch {
+      toast('Could not remove watcher', 'error')
+    }
+  }
+
+  return (
+    <div className="mt-2 ml-7 flex flex-wrap items-center gap-1.5">
+      <span
+        className="inline-flex items-center gap-1 text-[10px] font-medium uppercase text-gray-400"
+        title="Tagged users follow this ticket and get notified on updates"
+      >
+        <Eye className="h-3 w-3" />
+        Watchers
+      </span>
+      {watchers.length === 0 && !adding && (
+        <span className="text-[11px] text-gray-400">None</span>
+      )}
+      {watchers.map((w) => {
+        const isMe = w.user_id === currentUserId
+        return (
+          <span
+            key={w.user_id}
+            className="inline-flex items-center gap-1 rounded-full bg-indigo-50 px-2 py-0.5 text-[11px] font-medium text-indigo-700"
+            title={w.email || w.user_id}
+          >
+            {isMe ? 'You' : w.name}
+            <button
+              onClick={() => remove(w.user_id)}
+              className="rounded-full p-0.5 text-indigo-500 hover:bg-indigo-100 hover:text-indigo-900"
+              title={isMe ? 'Stop watching' : `Remove ${w.name}`}
+            >
+              <X className="h-2.5 w-2.5" />
+            </button>
+          </span>
+        )
+      })}
+      {adding ? (
+        <input
+          autoFocus
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          onBlur={() => { if (!busy) { setEmail(''); setAdding(false) } }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') { e.preventDefault(); submit() }
+            if (e.key === 'Escape') { setEmail(''); setAdding(false) }
+          }}
+          placeholder="email…"
+          type="email"
+          disabled={busy}
+          className="rounded-full border border-gray-300 px-2 py-0.5 text-[11px] outline-none focus:border-blue-500 disabled:opacity-50"
+          style={{ minWidth: 140 }}
+        />
+      ) : (
+        <button
+          onClick={() => setAdding(true)}
+          className="inline-flex items-center gap-1 rounded-full border border-dashed border-gray-300 px-2 py-0.5 text-[11px] text-gray-500 hover:border-blue-400 hover:text-blue-600"
+          title="Tag a user to follow this ticket"
+        >
+          <UserPlus className="h-2.5 w-2.5" />
+          Tag user
+        </button>
+      )}
     </div>
   )
 }

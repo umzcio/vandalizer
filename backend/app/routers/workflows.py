@@ -313,7 +313,8 @@ async def create_workflow(req: CreateWorkflowRequest, user: User = Depends(get_c
     created_by = await resolve_author(wf.created_by_user_id or wf.user_id)
     return WorkflowResponse(
         id=str(wf.id), name=wf.name, description=wf.description,
-        user_id=wf.user_id, num_executions=wf.num_executions,
+        user_id=wf.user_id, team_id=wf.team_id, num_executions=wf.num_executions,
+        can_manage=True,  # creator can always manage
         created_by=created_by,
     )
 
@@ -330,10 +331,13 @@ async def list_workflows(
     author_map = await resolve_authors(
         (wf.created_by_user_id or wf.user_id) for wf in workflows
     )
+    # One team-access lookup powers can_manage for every workflow in the page.
+    team_access = await access_control.get_team_access_context(user)
     return [
         WorkflowResponse(
             id=str(wf.id), name=wf.name, description=wf.description,
-            user_id=wf.user_id, num_executions=wf.num_executions,
+            user_id=wf.user_id, team_id=wf.team_id, num_executions=wf.num_executions,
+            can_manage=access_control.can_manage_workflow(wf, user, team_access),
             created_by=author_map.get(wf.created_by_user_id or wf.user_id),
         )
         for wf in workflows
@@ -449,6 +453,24 @@ async def download_results(
     if not status:
         raise HTTPException(status_code=404, detail="Workflow result not found")
 
+    # Build a base filename unique per session. Browsers cap auto-suffixing of
+    # duplicate downloads at ~5; past that, the same Content-Disposition name
+    # causes older files to be overwritten. Embedding the session id in the
+    # name guarantees uniqueness across manual runs.
+    workflow_name = status.get("workflow_name")
+    document_title = status.get("document_title")
+    name_parts: list[str] = []
+    if workflow_name:
+        name_parts.append(workflow_name)
+    else:
+        name_parts.append("results")
+    if document_title:
+        doc_stem = document_title.rsplit(".", 1)[0] if "." in document_title else document_title
+        name_parts.append(doc_stem)
+    name_parts.append(session_id[:8])
+    raw_base = "-".join(name_parts)
+    base_filename = "".join(c if c.isalnum() or c in " _-." else "_" for c in raw_base).strip() or f"results-{session_id[:8]}"
+
     final_output = status.get("final_output", {})
     steps_output = status.get("steps_output", {}) or {}
     output_step_names = [n for n in (status.get("output_step_names") or []) if n in steps_output]
@@ -472,7 +494,7 @@ async def download_results(
         return StreamingResponse(
             zip_buf,
             media_type="application/zip",
-            headers={"Content-Disposition": 'attachment; filename="deliverables.zip"'},
+            headers={"Content-Disposition": f'attachment; filename="{base_filename}.zip"'},
         )
 
     if len(output_step_names) == 1:
@@ -529,7 +551,7 @@ async def download_results(
         return StreamingResponse(
             io.BytesIO(buf.getvalue().encode()),
             media_type="text/csv",
-            headers={"Content-Disposition": 'attachment; filename="results.csv"'},
+            headers={"Content-Disposition": f'attachment; filename="{base_filename}.csv"'},
         )
 
     if format == "text":
@@ -547,7 +569,7 @@ async def download_results(
         return StreamingResponse(
             io.BytesIO(text.encode()),
             media_type="text/plain",
-            headers={"Content-Disposition": 'attachment; filename="results.txt"'},
+            headers={"Content-Disposition": f'attachment; filename="{base_filename}.txt"'},
         )
 
     if format == "pdf":
@@ -557,7 +579,7 @@ async def download_results(
         return StreamingResponse(
             io.BytesIO(pdf_bytes),
             media_type="application/pdf",
-            headers={"Content-Disposition": 'attachment; filename="results.pdf"'},
+            headers={"Content-Disposition": f'attachment; filename="{base_filename}.pdf"'},
         )
 
     if format == "docx":
@@ -565,7 +587,7 @@ async def download_results(
         return StreamingResponse(
             io.BytesIO(docx_bytes),
             media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            headers={"Content-Disposition": 'attachment; filename="results.docx"'},
+            headers={"Content-Disposition": f'attachment; filename="{base_filename}.docx"'},
         )
 
     # Default: JSON
@@ -573,7 +595,7 @@ async def download_results(
     return StreamingResponse(
         io.BytesIO(json_bytes),
         media_type="application/json",
-        headers={"Content-Disposition": 'attachment; filename="results.json"'},
+        headers={"Content-Disposition": f'attachment; filename="{base_filename}.json"'},
     )
 
 
@@ -718,11 +740,34 @@ async def import_into_workflow(
 
 
 @router.get("/{workflow_id}", response_model=WorkflowResponse)
-async def get_workflow(workflow_id: str, user: User = Depends(get_current_user)):
-    wf = await svc.get_workflow(workflow_id, user=user)
+async def get_workflow(
+    workflow_id: str,
+    share_token: str | None = Query(default=None),
+    user: User = Depends(get_current_user),
+):
+    wf = await svc.get_workflow(workflow_id, user=user, share_token=share_token)
     if not wf:
         raise HTTPException(status_code=404, detail="Workflow not found")
     return await _workflow_response_from_dict(wf)
+
+
+@router.post("/{workflow_id}/share-token")
+async def mint_workflow_share_token(workflow_id: str, user: User = Depends(get_current_user)):
+    """Mint (or return existing) view-only share token for a workflow.
+
+    Manager-level access required: owners and team owner/admin can issue
+    share links. Anyone holding the token can view and duplicate the
+    workflow but cannot edit the original.
+    """
+    import secrets
+
+    wf = await get_authorized_workflow(workflow_id, user, manage=True)
+    if not wf:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+    if not wf.share_token:
+        wf.share_token = secrets.token_urlsafe(32)
+        await wf.save()
+    return {"share_token": wf.share_token}
 
 
 @router.patch("/{workflow_id}", response_model=WorkflowResponse)
@@ -739,9 +784,10 @@ async def update_workflow(workflow_id: str, req: UpdateWorkflowRequest, user: Us
     created_by = await resolve_author(wf.created_by_user_id or wf.user_id)
     return WorkflowResponse(
         id=str(wf.id), name=wf.name, description=wf.description,
-        user_id=wf.user_id, num_executions=wf.num_executions,
+        user_id=wf.user_id, team_id=wf.team_id, num_executions=wf.num_executions,
         input_config=wf.input_config,
         output_config=wf.output_config,
+        can_manage=True,  # update already enforced manage authorization
         created_by=created_by,
     )
 
@@ -755,12 +801,51 @@ async def delete_workflow(workflow_id: str, user: User = Depends(get_current_use
 
 
 @router.post("/{workflow_id}/duplicate", response_model=WorkflowResponse)
-async def duplicate_workflow(workflow_id: str, user: User = Depends(get_current_user)):
+async def duplicate_workflow(
+    workflow_id: str,
+    share_token: str | None = Query(default=None),
+    user: User = Depends(get_current_user),
+):
     team_id = str(user.current_team) if user.current_team else None
-    wf = await svc.duplicate_workflow(workflow_id, user=user, user_id=user.user_id, team_id=team_id)
+    wf = await svc.duplicate_workflow(
+        workflow_id,
+        user=user,
+        user_id=user.user_id,
+        team_id=team_id,
+        share_token=share_token,
+    )
     if not wf:
         raise HTTPException(status_code=404, detail="Workflow not found")
     return await _workflow_response_from_dict(wf)
+
+
+@router.delete("/{workflow_id}/team", response_model=WorkflowResponse)
+async def remove_workflow_from_team(workflow_id: str, user: User = Depends(get_current_user)):
+    """Remove a workflow from its team library without deleting it.
+
+    The workflow stays owned by its creator (``user_id``) and disappears from
+    every other team member's view. Allowed for the creator or a team
+    owner/admin (same set as ``can_manage_workflow``).
+    """
+    try:
+        wf = await svc.remove_workflow_from_team(workflow_id, user=user)
+    except svc.WorkflowNotInTeam:
+        raise HTTPException(status_code=400, detail="Workflow is not in a team")
+    if not wf:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+    created_by = await resolve_author(wf.created_by_user_id or wf.user_id)
+    return WorkflowResponse(
+        id=str(wf.id),
+        name=wf.name,
+        description=wf.description,
+        user_id=wf.user_id,
+        team_id=wf.team_id,
+        num_executions=wf.num_executions,
+        input_config=wf.input_config,
+        output_config=wf.output_config,
+        can_manage=True,  # caller just managed it; trivially true
+        created_by=created_by,
+    )
 
 
 # ---------------------------------------------------------------------------

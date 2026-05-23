@@ -17,6 +17,11 @@ CSRF_EXEMPT_PREFIXES = (
     "/api/auth/logout",
     "/api/auth/refresh",
     "/api/auth/oauth/",
+    # SAML SSO: the IdP returns a self-submitting form that POSTs to
+    # /api/auth/saml/acs cross-site. It can't carry a CSRF header and Lax
+    # cookies don't ride along on cross-site POSTs — only an exemption
+    # works here. The endpoint validates the signed SAML assertion itself.
+    "/api/auth/saml/",
     "/api/auth/config",
     "/api/webhooks/",
     "/api/demo/apply",
@@ -25,6 +30,19 @@ CSRF_EXEMPT_PREFIXES = (
     "/api/health",
     "/api/certification/levels",
 )
+
+# The modern cookie carries the ``__Host-`` prefix, which the browser enforces
+# to be ``Secure``, ``Path=/``, and ``Domain``-less.  That guarantees only one
+# cookie of this name can live in the jar — immune to collisions from sibling
+# apps on a shared parent domain, prior deploys that set different attributes,
+# or proxies.  HTTP (development) cannot satisfy the prefix's ``Secure``
+# requirement, so we fall back to the legacy name there.
+MODERN_COOKIE_NAME = "__Host-csrf_token"
+LEGACY_COOKIE_NAME = "csrf_token"
+
+
+def _primary_cookie_name(*, secure: bool) -> str:
+    return MODERN_COOKIE_NAME if secure else LEGACY_COOKIE_NAME
 
 
 class CSRFMiddleware:
@@ -49,11 +67,26 @@ class CSRFMiddleware:
             await self.app(scope, receive, send)
             return
 
+        from app.dependencies import get_settings
+
+        settings = get_settings()
+        primary_name = _primary_cookie_name(secure=settings.is_production)
+
         method: str = scope["method"]
         path: str = scope["path"]
         headers = Headers(scope=scope)
-        cookies = _parse_cookie_header(headers.get("cookie", ""))
-        csrf_cookie = cookies.get("csrf_token")
+        cookie_header = headers.get("cookie", "")
+        cookies = _parse_cookie_header(cookie_header)
+        # Accept the header if it matches *any* cookie value the browser is
+        # sending.  A stale old-SPA tab will only read the legacy name (its
+        # regex doesn't match the ``__Host-`` prefix), while a fresh SPA reads
+        # the modern one.  When duplicate ``csrf_token`` cookies exist in the
+        # jar (sibling app on a parent domain, prior deploy with a different
+        # Path), the old SPA's regex picks the *first* value while SimpleCookie
+        # picks the *last* — so we must enumerate every legacy value, not just
+        # the deduped one, or the old-SPA header value won't be in the set.
+        csrf_modern = cookies.get(primary_name)
+        legacy_values = _all_cookie_values(cookie_header, LEGACY_COOKIE_NAME)
 
         is_safe = method in SAFE_METHODS
         is_exempt_path = any(path.startswith(prefix) for prefix in CSRF_EXEMPT_PREFIXES)
@@ -63,7 +96,8 @@ class CSRFMiddleware:
         # requests.
         if not is_safe and not is_exempt_path and not has_api_key:
             csrf_header = headers.get("x-csrf-token")
-            if not csrf_cookie or not csrf_header or csrf_cookie != csrf_header:
+            valid_values = {v for v in (csrf_modern, *legacy_values) if v}
+            if not csrf_header or csrf_header not in valid_values:
                 response = JSONResponse(
                     {"detail": "CSRF validation failed"}, status_code=403
                 )
@@ -76,16 +110,15 @@ class CSRFMiddleware:
             await self.app(scope, receive, send)
             return
 
-        # If the client already has a csrf_token cookie there's nothing to set.
-        if csrf_cookie:
+        # Only skip setting if the *primary* cookie is already present.  A user
+        # holding only the legacy cookie should still receive the modern one so
+        # subsequent requests can ignore stale duplicates of the old name.
+        if cookies.get(primary_name):
             await self.app(scope, receive, send)
             return
 
-        # Otherwise append a Set-Cookie header onto the outgoing response.
-        from app.dependencies import get_settings
-
         set_cookie_value = _build_csrf_cookie_header(
-            secure=get_settings().is_production
+            name=primary_name, secure=settings.is_production
         )
 
         async def send_with_cookie(message: Message) -> None:
@@ -115,15 +148,50 @@ def _parse_cookie_header(cookie_header: str) -> dict[str, str]:
     return cookies
 
 
-def _build_csrf_cookie_header(*, secure: bool) -> str:
-    """Build a Set-Cookie value matching the original middleware's settings."""
-    cookie: http.cookies.SimpleCookie = http.cookies.SimpleCookie()
-    cookie["csrf_token"] = secrets.token_urlsafe(32)
-    morsel = cookie["csrf_token"]
-    morsel["path"] = "/"
-    morsel["samesite"] = "strict"
-    morsel["max-age"] = 86400 * 30
+def _all_cookie_values(cookie_header: str, name: str) -> list[str]:
+    """Return every value the header carries for ``name``, including duplicates.
+
+    SimpleCookie collapses duplicate names to a single value (last-write-wins),
+    which loses any earlier value a stale old-SPA regex would have grabbed.
+    For double-submit validation we need the full multiset.
+    """
+    if not cookie_header:
+        return []
+    values: list[str] = []
+    for chunk in cookie_header.split(";"):
+        key, sep, value = chunk.strip().partition("=")
+        if sep and key == name:
+            values.append(value)
+    return values
+
+
+def _build_csrf_cookie_header(*, name: str, secure: bool) -> str:
+    """Build a Set-Cookie value for the CSRF cookie.
+
+    Assembled by hand rather than via ``SimpleCookie`` so the ``__Host-``
+    prefix in the name passes through verbatim without any quoting.
+    httpOnly is intentionally omitted — JS must be able to read this cookie.
+
+    ``SameSite=Lax`` (not Strict) because Strict has a documented browser
+    quirk: after an OAuth/SAML callback (a cross-site request that sets a
+    fresh Strict cookie), Chrome puts the just-set cookie in a transitional
+    "lax-allow-unsafe" mode on the next navigation, so ``document.cookie``
+    can briefly return empty for it. The SPA then can't echo the value into
+    the ``X-CSRF-Token`` header and the next POST 403s. Lax has none of
+    that quirk and provides equivalent CSRF protection: the double-submit
+    pattern's security comes from the Same-Origin Policy preventing
+    cross-origin *reads* of the cookie, not from SameSite. Lax already
+    blocks cross-site POSTs (the actual attack vector). This matches what
+    Django/Laravel/OWASP recommend for CSRF token cookies and aligns with
+    the ``access_token`` cookie which is also Lax.
+    """
+    value = secrets.token_urlsafe(32)
+    parts = [
+        f"{name}={value}",
+        "Path=/",
+        "SameSite=Lax",
+        f"Max-Age={86400 * 30}",
+    ]
     if secure:
-        morsel["secure"] = True
-    # httpOnly intentionally unset — JS must be able to read this cookie.
-    return cookie.output(header="").strip()
+        parts.append("Secure")
+    return "; ".join(parts)

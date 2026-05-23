@@ -51,14 +51,28 @@ export function updateKnowledgeBase(uuid: string, data: { title?: string; descri
   })
 }
 
-export function deleteKnowledgeBase(uuid: string) {
-  return apiFetch<{ ok: boolean }>(`/api/knowledge/${uuid}`, { method: 'DELETE' })
+export function deleteKnowledgeBase(uuid: string, mode?: 'unshare_and_delete') {
+  const qs = mode ? `?mode=${mode}` : ''
+  return apiFetch<{ ok: boolean }>(`/api/knowledge/${uuid}${qs}`, { method: 'DELETE' })
+}
+
+export function transferKnowledgeBaseToTeam(uuid: string) {
+  return apiFetch<{ ok: boolean; team_owned: boolean }>(`/api/knowledge/${uuid}/transfer-to-team`, {
+    method: 'POST',
+  })
 }
 
 export function addDocumentsToKB(uuid: string, documentUuids: string[]) {
   return apiFetch<{ ok: boolean; added: number }>(`/api/knowledge/${uuid}/add_documents`, {
     method: 'POST',
     body: JSON.stringify({ document_uuids: documentUuids }),
+  })
+}
+
+export function convertDocumentsToKB(documentUuids: string[], title?: string) {
+  return apiFetch<KnowledgeBase>('/api/knowledge/convert_documents', {
+    method: 'POST',
+    body: JSON.stringify({ document_uuids: documentUuids, title }),
   })
 }
 
@@ -88,6 +102,28 @@ export function removeKBSource(uuid: string, sourceUuid: string) {
 
 export function getKBSource(uuid: string, sourceUuid: string) {
   return apiFetch<KnowledgeBaseSourceDetail>(`/api/knowledge/${uuid}/source/${sourceUuid}`)
+}
+
+export interface KBSourceResponse {
+  uuid: string
+  source_type: 'document' | 'url'
+  document_uuid?: string | null
+  document_title?: string | null
+  url?: string | null
+  url_title?: string | null
+  custom_name?: string | null
+  status: 'pending' | 'processing' | 'ready' | 'error'
+  error_message?: string | null
+  chunk_count: number
+  created_at?: string | null
+}
+
+/** Set or clear the user-provided label for a KB source. Pass `""` to clear. */
+export function renameKBSource(uuid: string, sourceUuid: string, customName: string) {
+  return apiFetch<KBSourceResponse>(`/api/knowledge/${uuid}/source/${sourceUuid}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ custom_name: customName }),
+  })
 }
 
 export function shareKnowledgeBase(uuid: string, comment?: string) {
@@ -470,6 +506,7 @@ export interface KBExportPayload {
     document_title?: string | null
     url?: string | null
     url_title?: string | null
+    custom_name?: string | null
     content?: string | null
     crawl_enabled?: boolean
     max_crawl_pages?: number

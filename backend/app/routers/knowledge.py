@@ -15,6 +15,7 @@ from app.schemas.knowledge import (
     AddDocumentsRequest,
     AddUrlsRequest,
     AdoptKBRequest,
+    ConvertDocumentsRequest,
     CreateKBRequest,
     ImportKBRequest,
     ImportKBResponse,
@@ -27,6 +28,7 @@ from app.schemas.knowledge import (
     KBStatusResponse,
     ShareKBRequest,
     UpdateKBRequest,
+    UpdateSourceRequest,
 )
 from app.services import knowledge_service as svc
 
@@ -101,6 +103,7 @@ def _kb_response(kb, *, scope: str | None = None, trust: "_TrustSummary | None" 
         description=kb.description or "",
         status=kb.status,
         shared_with_team=kb.shared_with_team,
+        team_owned=kb.team_owned,
         verified=kb.verified,
         organization_ids=kb.organization_ids,
         tags=list(getattr(kb, "tags", None) or []),
@@ -187,6 +190,7 @@ def _source_response(s, *, document_title: str | None = None) -> KBSourceRespons
         document_title=document_title,
         url=s.url,
         url_title=s.url_title or "",
+        custom_name=s.custom_name,
         status=s.status,
         error_message=s.error_message or "",
         chunk_count=s.chunk_count,
@@ -212,7 +216,7 @@ async def _resolve_document_titles(sources) -> dict[str, str]:
         docs = await SmartDocument.find({"uuid": {"$in": doc_uuids}}).to_list()
     except Exception:
         return {}
-    return {d.uuid: d.title for d in docs}
+    return {d.uuid: d.title for d in docs if d.title}
 
 
 @router.get("/list", response_model=list[KBResponse])
@@ -228,6 +232,8 @@ async def list_knowledge_bases_legacy(user: User = Depends(get_current_user)):
 
 def _classify_scope(kb, user_id: str, team_id: str | None) -> str:
     """Determine the display scope for a KB relative to the requesting user."""
+    if kb.shared_with_team and kb.team_id == team_id and kb.team_owned:
+        return "team"
     if kb.user_id == user_id:
         return "mine"
     if kb.verified:
@@ -307,6 +313,44 @@ async def create_knowledge_base(req: CreateKBRequest, user: User = Depends(get_c
         title=req.title, user_id=user.user_id,
         team_id=team_id, description=req.description,
     )
+    return _kb_response(kb)
+
+
+@router.post("/convert_documents", response_model=KBResponse)
+async def convert_documents_to_kb(
+    req: ConvertDocumentsRequest, user: User = Depends(get_current_user),
+):
+    """One-click "Convert to Knowledge Base" for oversized documents.
+
+    Creates a new KB with a sensible default title, then attaches the given
+    SmartDocuments via the standard add_documents pipeline. The frontend uses
+    this to recover from a context-over-budget error without making the user
+    navigate to the KB UI.
+    """
+    if not req.document_uuids:
+        raise HTTPException(status_code=400, detail="No documents provided")
+
+    # Pick a default title from the first doc when the client didn't supply one.
+    title = (req.title or "").strip()
+    if not title:
+        from app.models.document import SmartDocument
+
+        first = await SmartDocument.find_one(SmartDocument.uuid == req.document_uuids[0])
+        if first and first.title:
+            title = first.title if len(req.document_uuids) == 1 else f"{first.title} (and {len(req.document_uuids) - 1} more)"
+        else:
+            title = "Reference documents"
+
+    team_id = str(user.current_team) if user.current_team else None
+    kb = await svc.create_knowledge_base(
+        title=title, user_id=user.user_id, team_id=team_id, description=None,
+    )
+    kb.status = "building"
+    await kb.save()
+    try:
+        await svc.add_documents(kb, req.document_uuids, user)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
     return _kb_response(kb)
 
 
@@ -409,12 +453,53 @@ async def share_knowledge_base(
 
 
 @router.delete("/{uuid}")
-async def delete_knowledge_base(uuid: str, user: User = Depends(get_current_user)):
+async def delete_knowledge_base(
+    uuid: str,
+    mode: str | None = Query(None, pattern="^unshare_and_delete$"),
+    user: User = Depends(get_current_user),
+):
+    """Delete a knowledge base.
+
+    For KBs that are currently shared with a team, the caller must pass
+    ``mode=unshare_and_delete`` to acknowledge that the KB will disappear
+    from the Team Library as well. Otherwise the request fails with 409 and
+    the client should prompt the user to choose between transferring
+    ownership (via POST /{uuid}/transfer-to-team) or force-deleting.
+    """
     user_org_ancestry = await organization_service.get_user_org_ancestry(user)
-    ok = await svc.delete_knowledge_base(uuid, user, user_org_ancestry=user_org_ancestry)
+    try:
+        ok = await svc.delete_knowledge_base(
+            uuid,
+            user,
+            user_org_ancestry=user_org_ancestry,
+            force_shared=(mode == "unshare_and_delete"),
+        )
+    except svc.SharedKBDeleteRequiresMode:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "shared_kb_delete_requires_mode",
+                "message": "This knowledge base is shared with your team. Choose to move it to the Team Library only, or to unshare and delete everywhere.",
+            },
+        )
     if not ok:
         raise HTTPException(status_code=404, detail="Knowledge base not found")
     return {"ok": True}
+
+
+@router.post("/{uuid}/transfer-to-team")
+async def transfer_to_team(uuid: str, user: User = Depends(get_current_user)):
+    """Mark a shared KB as team-owned: removes it from My KBs but keeps Team Library access."""
+    user_org_ancestry = await organization_service.get_user_org_ancestry(user)
+    try:
+        kb = await svc.transfer_kb_to_team(
+            uuid, user, user_org_ancestry=user_org_ancestry,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    if not kb:
+        raise HTTPException(status_code=404, detail="Knowledge base not found")
+    return {"ok": True, "team_owned": kb.team_owned}
 
 
 @router.post("/{uuid}/add_documents")
@@ -518,6 +603,35 @@ async def get_source_detail(uuid: str, source_uuid: str, user: User = Depends(ge
         ],
         processed_at=source.processed_at.isoformat() if source.processed_at else None,
     )
+
+
+@router.patch("/{uuid}/source/{source_uuid}", response_model=KBSourceResponse)
+async def update_source(
+    uuid: str,
+    source_uuid: str,
+    req: UpdateSourceRequest,
+    user: User = Depends(get_current_user),
+):
+    """Rename a single source within a KB.
+
+    Send ``custom_name`` to set a user-facing label; send an empty string to
+    clear the override and revert to the auto-derived title.
+    """
+    user_org_ancestry = await organization_service.get_user_org_ancestry(user)
+    kb = await svc.get_knowledge_base(
+        uuid,
+        user,
+        manage=True,
+        user_org_ancestry=user_org_ancestry,
+        allow_admin=True,
+    )
+    if not kb:
+        raise HTTPException(status_code=404, detail="Knowledge base not found")
+    source = await svc.update_source_name(kb, source_uuid, req.custom_name)
+    if not source:
+        raise HTTPException(status_code=404, detail="Source not found")
+    titles = await _resolve_document_titles([source])
+    return _source_response(source, document_title=titles.get(source.document_uuid or ""))
 
 
 @router.delete("/{uuid}/source/{source_uuid}")

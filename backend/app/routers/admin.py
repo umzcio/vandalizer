@@ -1340,7 +1340,44 @@ async def add_model(
 
 
 # ---------------------------------------------------------------------------
-# 7b. PUT /config/models/{index}  - Update an existing model
+# 7b. PUT /config/models/default  - Set (or clear) the system default model
+# ---------------------------------------------------------------------------
+# Defined before PUT /config/models/{index} so "default" isn't parsed as an int.
+
+class DefaultModelRequest(BaseModel):
+    name: str = ""
+
+
+@router.put("/config/models/default")
+async def set_default_model(
+    body: DefaultModelRequest,
+    user: User = Depends(get_current_user),
+):
+    await _require_superadmin(user)
+
+    cfg = await SystemConfig.get_config()
+    name = (body.name or "").strip()
+
+    if name:
+        match = next(
+            (m for m in cfg.available_models if isinstance(m, dict) and m.get("name") == name),
+            None,
+        )
+        if not match:
+            raise HTTPException(status_code=404, detail=f"Model '{name}' is not configured")
+
+    cfg.default_model = name
+    cfg.updated_at = datetime.datetime.now(datetime.timezone.utc)
+    cfg.updated_by = user.user_id
+    await cfg.save()
+    clear_agent_caches()
+    await _audit(user, "set_default_model", f"Default model: {name or '(cleared)'}")
+
+    return {"status": "ok", "default_model": cfg.default_model or ""}
+
+
+# ---------------------------------------------------------------------------
+# 7c. PUT /config/models/{index}  - Update an existing model
 # ---------------------------------------------------------------------------
 
 @router.put("/config/models/{index}")
@@ -1419,42 +1456,6 @@ async def delete_model(
     await _audit(user, "delete_model", f"Deleted model at index {index}: {removed.get('tag', '?')}")
 
     return {"status": "ok", "removed": removed, "models": cfg.available_models, "default_model": cfg.default_model or ""}
-
-
-# ---------------------------------------------------------------------------
-# 8b. PUT /config/models/default  - Set (or clear) the system default model
-# ---------------------------------------------------------------------------
-
-class DefaultModelRequest(BaseModel):
-    name: str = ""
-
-
-@router.put("/config/models/default")
-async def set_default_model(
-    body: DefaultModelRequest,
-    user: User = Depends(get_current_user),
-):
-    await _require_superadmin(user)
-
-    cfg = await SystemConfig.get_config()
-    name = (body.name or "").strip()
-
-    if name:
-        match = next(
-            (m for m in cfg.available_models if isinstance(m, dict) and m.get("name") == name),
-            None,
-        )
-        if not match:
-            raise HTTPException(status_code=404, detail=f"Model '{name}' is not configured")
-
-    cfg.default_model = name
-    cfg.updated_at = datetime.datetime.now(datetime.timezone.utc)
-    cfg.updated_by = user.user_id
-    await cfg.save()
-    clear_agent_caches()
-    await _audit(user, "set_default_model", f"Default model: {name or '(cleared)'}")
-
-    return {"status": "ok", "default_model": cfg.default_model or ""}
 
 
 # ---------------------------------------------------------------------------
@@ -2067,6 +2068,50 @@ async def test_model(index: int, user: User = Depends(get_current_user)):
         }
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Model test failed: {e}")
+
+
+class ModelProbeRequest(BaseModel):
+    name: str
+    endpoint: Optional[str] = ""
+    api_protocol: Optional[str] = ""
+    api_key: Optional[str] = ""
+    # When editing an existing model, the form sends api_key="***" to
+    # preserve the stored credential. Pass that model's index so we can
+    # decrypt and use it.
+    existing_model_index: Optional[int] = None
+
+
+@router.post("/config/probe-model")
+async def probe_model(
+    body: ModelProbeRequest,
+    user: User = Depends(get_current_user),
+):
+    """Ask the endpoint what context window it actually serves.
+
+    Used by the admin model form to pre-fill `context_window` from the
+    truth instead of the substring fallback table. Result is advisory —
+    the admin still chooses whether to accept it.
+    """
+    await _require_superadmin(user)
+
+    from app.services.model_probe import probe_context_window
+
+    api_key = (body.api_key or "").strip()
+    if (api_key == "***" or not api_key) and body.existing_model_index is not None:
+        cfg = await SystemConfig.get_config()
+        idx = body.existing_model_index
+        if 0 <= idx < len(cfg.available_models):
+            stored = cfg.available_models[idx].get("api_key", "")
+            if stored:
+                api_key = decrypt_value(stored) or ""
+
+    result = await probe_context_window(
+        endpoint=(body.endpoint or "").strip(),
+        api_protocol=(body.api_protocol or "").strip(),
+        api_key=api_key,
+        model_name=(body.name or "").strip(),
+    )
+    return result.to_dict()
 
 
 # ---------------------------------------------------------------------------

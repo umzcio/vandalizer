@@ -71,12 +71,31 @@ export interface Workflow {
   name: string;
   description: string | null;
   user_id: string;
+  // Set when the workflow is shared with a team; null for personal workflows.
+  // Used to decide whether the "Remove from team" action is offered.
+  team_id?: string | null;
   num_executions: number;
   steps: WorkflowStep[];
   input_config?: { trigger_type?: string };
   output_config?: { storage?: SaveOutputConfig; [key: string]: unknown };
   can_manage?: boolean;
   created_by?: AuthorRef | null;
+}
+
+export interface WorkflowErrorPayload {
+  code: string;
+  suggested_action?: 'convert_to_kb';
+  oversize_documents?: Array<{ uuid: string; title: string; token_count: number }>;
+}
+
+export interface WorkflowCitation {
+  document_id?: string | null;
+  document_title: string;
+  page?: number | null;
+  sheet?: string | null;
+  chunk_id?: string | null;
+  score?: number | null;
+  content_preview?: string;
 }
 
 export interface WorkflowStatus {
@@ -90,6 +109,9 @@ export interface WorkflowStatus {
   steps_output: Record<string, unknown> | null;
   output_step_names: string[];
   approval_request_id: string | null;
+  error?: string | null;
+  error_payload?: WorkflowErrorPayload | null;
+  retrieved_sources?: WorkflowCitation[];
 }
 
 export interface ModelInfo {

@@ -38,7 +38,7 @@ from app.models.organization import Organization
 from app.models.audit_log import AuditLog, AdminAuditLog
 from app.models.approval import ApprovalRequest
 from app.models.notification import Notification
-from app.models.support import SupportTicket
+from app.models.support import SupportTicket, SupportCounter
 from app.models.feedback_prompt import FeedbackPrompt, FeedbackPromptResponse
 from app.models.email_log import EmailLog
 from app.models.api_key import ApiKey
@@ -100,6 +100,7 @@ ALL_MODELS = [
     ApprovalRequest,
     Notification,
     SupportTicket,
+    SupportCounter,
     FeedbackPrompt,
     FeedbackPromptResponse,
     EmailLog,

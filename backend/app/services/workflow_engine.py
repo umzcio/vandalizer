@@ -533,19 +533,14 @@ class WebsiteNode(Node):
         if not url:
             return {"output": "", "input": inputs.get("output"), "step_name": self.name}
 
-        from app.utils.url_validation import validate_outbound_url
-
-        try:
-            validate_outbound_url(url)
-        except ValueError as e:
-            return {"output": f"Blocked URL: {e}", "input": inputs.get("output"), "step_name": self.name}
+        from app.services.web_fetcher import fetch_url_sync
 
         self.report_progress(f"Fetching {url}")
         try:
-            with httpx.Client(timeout=30, follow_redirects=True) as client:
-                resp = client.get(url)
-                resp.raise_for_status()
-            text = _extract_text_from_html(resp.text)
+            result = fetch_url_sync(url)
+            text = result.text
+        except ValueError as e:
+            text = f"Blocked URL: {e}"
         except httpx.HTTPStatusError as e:
             text = f"HTTP error fetching {url}: {e.response.status_code}"
         except httpx.RequestError as e:
@@ -773,9 +768,26 @@ class APICallNode(Node):
         headers: dict[str, str] = {}
         if headers_raw:
             try:
-                headers = json.loads(headers_raw)
-            except json.JSONDecodeError:
-                pass
+                parsed = json.loads(headers_raw)
+            except json.JSONDecodeError as e:
+                return {
+                    "output": (
+                        f"Invalid Headers JSON: {e}. "
+                        "Check for smart quotes or other invisible characters."
+                    ),
+                    "input": inputs.get("output"),
+                    "step_name": self.name,
+                }
+            if not isinstance(parsed, dict):
+                return {
+                    "output": (
+                        "Invalid Headers JSON: expected an object like "
+                        '{"x-api-key": "..."}'
+                    ),
+                    "input": inputs.get("output"),
+                    "step_name": self.name,
+                }
+            headers = {str(k): str(v) for k, v in parsed.items()}
 
         # Apply credential-based auth (overrides any conflicting header).
         if auth_strategy != "none":
@@ -1086,12 +1098,35 @@ class KnowledgeBaseQueryNode(Node):
 
         # Format as plain text context block so downstream LLM steps can use it naturally
         parts = []
+        sources: list[dict] = []
         for i, r in enumerate(results, 1):
-            source = r["metadata"].get("source_name", "Unknown source")
-            parts.append(f"[{i}] {source}\n{r['content']}")
+            meta = r.get("metadata") or {}
+            source_name = meta.get("source_name", "Unknown source")
+            page = meta.get("page")
+            sheet = meta.get("sheet")
+            label = source_name
+            if isinstance(page, int):
+                label = f"{source_name} · p. {page}"
+            elif isinstance(sheet, str) and sheet:
+                label = f"{source_name} · {sheet}"
+            parts.append(f"[{i}] {label}\n{r['content']}")
+            sources.append({
+                "document_id": meta.get("source_id"),
+                "document_title": source_name,
+                "page": page if isinstance(page, int) else None,
+                "sheet": sheet if isinstance(sheet, str) else None,
+                "chunk_id": r.get("chunk_id"),
+                "score": r.get("score"),
+                "content_preview": (r.get("content") or "")[:240],
+            })
 
         output = "\n\n---\n\n".join(parts)
-        return {"output": output, "input": inputs.get("output"), "step_name": self.name}
+        return {
+            "output": output,
+            "input": inputs.get("output"),
+            "step_name": self.name,
+            "retrieved_sources": sources,
+        }
 
 
 # ---------------------------------------------------------------------------
@@ -1165,11 +1200,15 @@ class WorkflowEngine:
                     "num_steps_completed": idx,
                 })
 
-            data.append({
+            entry = {
                 "name": node.name,
                 "output": latest_output.get("output"),
                 "input": latest_output.get("input"),
-            })
+            }
+            sources = latest_output.get("retrieved_sources")
+            if isinstance(sources, list) and sources:
+                entry["retrieved_sources"] = sources
+            data.append(entry)
 
         if latest_output is None:
             return None, data
