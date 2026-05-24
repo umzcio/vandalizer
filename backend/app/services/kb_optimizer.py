@@ -84,14 +84,20 @@ def _sample_trial_configs(
     per_trial_estimate: int = DEFAULT_TRIAL_TOKEN_ESTIMATE,
     rng: random.Random | None = None,
 ) -> list[dict]:
-    """Random sample without replacement, capped by budget and MAX_TRIAL_COUNT."""
-    rng = rng or random.Random()
-    target = min(MAX_TRIAL_COUNT, max(0, token_budget // max(1, per_trial_estimate)))
-    if target <= 0:
-        return []
-    pool = list(search_space)
-    rng.shuffle(pool)
-    return pool[:target]
+    """Random sample without replacement, capped by budget and MAX_TRIAL_COUNT.
+
+    Thin wrapper around BudgetEnforcer.sample_trials for backwards compatibility
+    with existing callers and tests. New code should construct a BudgetEnforcer
+    directly so it can also pace token usage between trials.
+    """
+    from app.services.budget_enforcer import BudgetEnforcer
+
+    enforcer = BudgetEnforcer(
+        total_budget=token_budget,
+        per_trial_estimate=per_trial_estimate,
+        max_trial_count=MAX_TRIAL_COUNT,
+    )
+    return enforcer.sample_trials(search_space, rng=rng)
 
 
 def _config_is_default(cfg: dict) -> bool:

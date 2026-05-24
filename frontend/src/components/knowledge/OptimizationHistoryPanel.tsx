@@ -3,8 +3,8 @@ import { ChevronDown, ChevronRight, History, Loader2 } from 'lucide-react'
 import {
   listKBOptimizationHistory,
   type KBOptimizationRunSummary,
-  type OptimizationStatus,
 } from '../../api/knowledge'
+import { StatusDot } from '../shared/StatusDot'
 
 interface Props {
   kbUuid: string
@@ -139,17 +139,6 @@ function HistoryRow({
         </span>
       )}
     </button>
-  )
-}
-
-function StatusDot({ status }: { status: OptimizationStatus }) {
-  const c =
-    status === 'completed' ? '#22c55e' :
-    status === 'cancelled' ? '#888' :
-    status === 'failed' ? '#ef4444' :
-    '#a78bfa'  // queued / running
-  return (
-    <span style={{ width: 7, height: 7, borderRadius: '50%', backgroundColor: c, flexShrink: 0 }} />
   )
 }
 

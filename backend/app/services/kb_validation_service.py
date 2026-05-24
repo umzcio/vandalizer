@@ -683,44 +683,43 @@ async def _sample_judge_variance(
     test_queries_by_uuid: dict,
     model_name: str,
 ) -> tuple[float | None, int]:
-    """Re-judge a small sample to estimate judge nondeterminism.
+    """Re-judge a small sample to estimate judge nondeterminism (KB-specific wrapper).
 
-    Picks up to 2 queries that were successfully judged, re-runs the judge once
-    each, and returns ``(variance, tokens_used)``. Variance is None when we
-    can't sample meaningfully (e.g. fewer than 2 judged queries). Tokens still
-    accumulate across attempted samples so the optimizer's budget tracking is
-    accurate even when the variance estimate is inconclusive.
+    Filters out SKIPPED verdicts and queries with no expected_answer, then
+    delegates to ``judge_variance.sample_judge_variance`` for the loop + math.
     """
-    await _ensure_system_config_loaded()
-    candidates = [d for d in judged_details if d.get("judge") and d["judge"].get("verdict") != "SKIPPED"]
-    if len(candidates) < 2:
-        return (None, 0)
+    from app.services.judge_variance import sample_judge_variance
 
-    sample = candidates[:2]
-    deltas: list[float] = []
-    tokens = 0
-    for d in sample:
+    await _ensure_system_config_loaded()
+
+    # Build (judged_detail, test_query) sample pairs, dropping anything we
+    # can't re-judge (no judge result, SKIPPED, no expected_answer).
+    samples: list[tuple[dict, object]] = []
+    for d in judged_details:
+        if not d.get("judge") or d["judge"].get("verdict") == "SKIPPED":
+            continue
         tq = test_queries_by_uuid.get(d["query_uuid"])
         if not tq or not getattr(tq, "expected_answer", None):
             continue
-        try:
-            replay = await _judge_answer(
-                query=tq.query,
-                expected_answer=tq.expected_answer,
-                actual_answer=d.get("actual_answer", "") or "",
-                model_name=model_name,
-                retrieved_context=None,
-            )
-            deltas.append(abs(d["judge"]["score"] - replay["score"]))
-            tokens += int(replay.get("tokens_used", 0) or 0)
-        except Exception:
-            continue
-    if not deltas:
-        return (None, tokens)
-    # stddev of single-shot deltas; for n=1..2 this is just mean abs delta — close enough as a noise floor.
-    mean = sum(deltas) / len(deltas)
-    variance = sum((x - mean) ** 2 for x in deltas) / len(deltas)
-    return (round(variance ** 0.5, 4), tokens)
+        samples.append((d, tq))
+
+    async def judge_one(sample: tuple[dict, object]) -> tuple[float, int]:
+        d, tq = sample
+        replay = await _judge_answer(
+            query=tq.query,
+            expected_answer=tq.expected_answer,
+            actual_answer=d.get("actual_answer", "") or "",
+            model_name=model_name,
+            retrieved_context=None,
+        )
+        return float(replay["score"]), int(replay.get("tokens_used", 0) or 0)
+
+    return await sample_judge_variance(
+        samples=samples,
+        judge_fn=judge_one,
+        original_score=lambda s: float(s[0]["judge"]["score"]),
+        max_samples=2,
+    )
 
 
 async def check_source_health(kb_uuid: str) -> dict:

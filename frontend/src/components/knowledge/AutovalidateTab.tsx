@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Sparkles, Loader2 } from 'lucide-react'
 import {
   startKBOptimization,
@@ -13,6 +13,8 @@ import { AutovalidateModal } from './AutovalidateModal'
 import { OptimizationProgress } from './OptimizationProgress'
 import { OptimizationResults } from './OptimizationResults'
 import { OptimizationHistoryPanel } from './OptimizationHistoryPanel'
+import { ErrorBanner, PastRunBanner } from '../shared/RunBanners'
+import { useIntervalPoll } from '../shared/hooks/useIntervalPoll'
 
 interface Props {
   kbUuid: string
@@ -33,29 +35,19 @@ export function AutovalidateTab({ kbUuid, kbReady, canManage }: Props) {
   // mutate from a historical context.
   const [viewingPast, setViewingPast] = useState<KBOptimizationRun | null>(null)
   const [viewingPastLoading, setViewingPastLoading] = useState(false)
-  const pollRef = useRef<number | null>(null)
 
-  const stopPolling = useCallback(() => {
-    if (pollRef.current != null) {
-      window.clearInterval(pollRef.current)
-      pollRef.current = null
-    }
-  }, [])
+  const poll = useIntervalPoll<KBOptimizationRun>()
+  const { stop: stopPolling } = poll
 
   const startPolling = useCallback((runUuid: string) => {
-    stopPolling()
-    pollRef.current = window.setInterval(async () => {
-      try {
-        const fresh = await getKBOptimization(kbUuid, runUuid)
-        setRun(fresh)
-        if (fresh.status === 'completed' || fresh.status === 'failed' || fresh.status === 'cancelled') {
-          stopPolling()
-        }
-      } catch (e) {
-        console.error('Polling optimization failed', e)
-      }
-    }, POLL_INTERVAL_MS)
-  }, [kbUuid, stopPolling])
+    poll.start({
+      fetch: () => getKBOptimization(kbUuid, runUuid),
+      intervalMs: POLL_INTERVAL_MS,
+      isTerminal: (r) => r.status === 'completed' || r.status === 'failed' || r.status === 'cancelled',
+      onUpdate: setRun,
+      onError: (e) => console.error('Polling optimization failed', e),
+    })
+  }, [kbUuid, poll])
 
   // Initial load: see if there's an active or recent run.
   useEffect(() => {
@@ -252,36 +244,6 @@ export function AutovalidateTab({ kbUuid, kbReady, canManage }: Props) {
   )
 }
 
-function PastRunBanner({ startedAt, onExit }: { startedAt: string | null; onExit: () => void }) {
-  const when = startedAt ? new Date(startedAt).toLocaleString() : 'Unknown date'
-  return (
-    <div style={{
-      display: 'flex', alignItems: 'center', gap: 10,
-      padding: '8px 12px',
-      backgroundColor: 'rgba(124, 58, 237, 0.10)',
-      border: '1px solid rgba(124, 58, 237, 0.35)', borderRadius: 6,
-      fontSize: 12, color: '#e5e5e5',
-    }}>
-      <Sparkles size={13} style={{ color: '#a78bfa', flexShrink: 0 }} />
-      <span style={{ flex: 1 }}>
-        Viewing past run from <b>{when}</b> — read-only.
-      </span>
-      <button
-        onClick={onExit}
-        style={{
-          padding: '4px 10px', fontSize: 11, fontWeight: 600, fontFamily: 'inherit',
-          color: '#e5e5e5', background: 'transparent',
-          border: '1px solid rgba(124, 58, 237, 0.4)', borderRadius: 5,
-          cursor: 'pointer',
-        }}
-      >
-        Back to current
-      </button>
-    </div>
-  )
-}
-
-
 function IdleHero({ kbReady, canManage, onStart }: { kbReady: boolean; canManage: boolean; onStart: () => void }) {
   const disabled = !kbReady || !canManage
   const reason = !kbReady ? 'KB is still building' : !canManage ? 'You cannot manage this KB' : null
@@ -325,14 +287,3 @@ function IdleHero({ kbReady, canManage, onStart }: { kbReady: boolean; canManage
   )
 }
 
-function ErrorBanner({ message }: { message: string }) {
-  return (
-    <div style={{
-      padding: 10, marginBottom: 10, fontSize: 12,
-      color: '#fca5a5', backgroundColor: 'rgba(239, 68, 68, 0.1)',
-      border: '1px solid rgba(239, 68, 68, 0.3)', borderRadius: 6,
-    }}>
-      {message}
-    </div>
-  )
-}
