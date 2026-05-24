@@ -632,7 +632,8 @@ async def try_verified_item(
     model = await get_user_model_name(user.user_id)
     sys_config = await SystemConfig.get_config()
     sys_config_doc = sys_config.model_dump() if sys_config else {}
-    extraction_config = ss.extraction_config if ss.extraction_config else None
+    from app.services.search_set_service import effective_extraction_config
+    extraction_config = effective_extraction_config(ss) or None
 
     engine = ExtractionEngine(system_config_doc=sys_config_doc)
     result = await asyncio.to_thread(

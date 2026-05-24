@@ -436,6 +436,213 @@ export function clearTuningResult(uuid: string) {
   )
 }
 
+// ---------------------------------------------------------------------------
+// Extraction optimization (Autovalidate parallel to KB Autovalidate)
+// ---------------------------------------------------------------------------
+
+export type ExtractionOptimizationStatus = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled'
+
+export interface ExtractionTrial {
+  trial_id: string
+  config: Record<string, unknown> & { model?: string | null }
+  score: number | null
+  accuracy: number | null
+  consistency: number | null
+  lift_vs_default: number | null
+  tokens_used: number
+  status: 'completed' | 'failed' | 'early_stopped' | string
+  duration_seconds?: number
+  error?: string
+}
+
+export interface ExtractionOptimizationRun {
+  uuid: string
+  search_set_uuid: string
+  status: ExtractionOptimizationStatus
+  phase: string
+  progress_message: string
+  current_trial_index: number
+  total_trials_planned: number
+  best_score_so_far: number | null
+  best_config_so_far: Record<string, unknown> | null
+  token_budget: number
+  tokens_used: number
+  estimated_cost_usd: number | null
+  actual_cost_usd: number | null
+  baseline_no_tool_score: number | null
+  baseline_default_score: number | null
+  optimized_score: number | null
+  judge_variance: number | null
+  judge_model: string | null
+  best_config: Record<string, unknown> | null
+  trials: ExtractionTrial[]
+  field_breakdown: Array<{ field: string; accuracy: number; consistency: number }>
+  suggestions: Array<{ severity: 'info' | 'warning' | 'critical'; message: string; kind?: string }>
+  previous_override: Record<string, unknown> | null
+  options: Record<string, unknown>
+  error_message: string | null
+  started_at: string | null
+  completed_at: string | null
+  cancel_requested: boolean
+}
+
+export interface StartExtractionOptimizationOptions {
+  token_budget?: number     // 0 = use max_candidates directly (Phase 1A default)
+  max_candidates?: number   // default 8 on backend
+  apply_on_finish?: boolean
+  /** Phase 1B: when true, use semantic LLM judge instead of strict-match scoring. */
+  include_judge?: boolean
+}
+
+export function startExtractionOptimization(uuid: string, opts: StartExtractionOptimizationOptions = {}) {
+  return apiFetch<{ run_uuid: string; status: 'queued' }>(
+    `/api/extractions/search-sets/${uuid}/optimize`,
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        token_budget: opts.token_budget ?? 0,
+        max_candidates: opts.max_candidates ?? 8,
+        apply_on_finish: opts.apply_on_finish ?? false,
+        include_judge: opts.include_judge ?? false,
+      }),
+    }
+  )
+}
+
+export function getActiveExtractionOptimization(uuid: string) {
+  return apiFetch<{ run: ExtractionOptimizationRun | null }>(
+    `/api/extractions/search-sets/${uuid}/optimize/active`
+  )
+}
+
+export function getExtractionOptimization(uuid: string, runUuid: string) {
+  return apiFetch<ExtractionOptimizationRun>(
+    `/api/extractions/search-sets/${uuid}/optimize/${runUuid}`
+  )
+}
+
+export function cancelExtractionOptimization(uuid: string, runUuid: string) {
+  return apiFetch<{ ok: boolean; status: string; note?: string }>(
+    `/api/extractions/search-sets/${uuid}/optimize/${runUuid}/cancel`,
+    { method: 'POST' }
+  )
+}
+
+export function applyExtractionOptimization(uuid: string, runUuid: string) {
+  return apiFetch<{ ok: boolean; applied_config: Record<string, unknown> }>(
+    `/api/extractions/search-sets/${uuid}/optimize/${runUuid}/apply`,
+    { method: 'POST' }
+  )
+}
+
+// History of past optimization runs (newest first)
+
+export interface ExtractionOptimizationRunSummary {
+  uuid: string
+  search_set_uuid: string
+  status: ExtractionOptimizationStatus
+  started_at: string | null
+  completed_at: string | null
+  token_budget: number
+  tokens_used: number
+  baseline_no_tool_score: number | null
+  baseline_default_score: number | null
+  optimized_score: number | null
+  judge_model: string | null
+  num_trials: number
+  best_config: Record<string, unknown> | null
+  options: Record<string, unknown>
+  error_message: string | null
+}
+
+export function listExtractionOptimizationHistory(
+  uuid: string,
+  options?: { limit?: number; skip?: number },
+) {
+  const params = new URLSearchParams()
+  if (options?.limit !== undefined) params.set('limit', String(options.limit))
+  if (options?.skip !== undefined) params.set('skip', String(options.skip))
+  const qs = params.toString()
+  return apiFetch<{
+    items: ExtractionOptimizationRunSummary[]
+    skip: number
+    limit: number
+    count: number
+  }>(`/api/extractions/search-sets/${uuid}/optimize${qs ? `?${qs}` : ''}`)
+}
+
+// Test-case auto-generator (Phase 1B)
+// Two-step flow: generate proposals → user reviews → approves.
+
+export type TestCaseCoverage = 'quick' | 'standard' | 'exhaustive'
+
+export interface ProposedTestCase {
+  proposal_id: string
+  label: string
+  source_type: 'document' | 'text'
+  document_uuid?: string | null
+  source_text?: string | null
+  expected_values: Record<string, string>
+  auto_generated: boolean
+}
+
+export interface GenerateTestCasesResult {
+  proposals: ProposedTestCase[]
+  errors: Array<{ document_uuid: string; reason: string }>
+}
+
+export function generateTestCaseProposals(
+  uuid: string,
+  documentUuids: string[],
+  coverage: TestCaseCoverage = 'standard',
+) {
+  return apiFetch<GenerateTestCasesResult>(
+    `/api/extractions/search-sets/${uuid}/generate-test-cases`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ document_uuids: documentUuids, coverage }),
+    },
+  )
+}
+
+export function approveTestCaseProposals(uuid: string, proposals: ProposedTestCase[]) {
+  return apiFetch<{
+    count: number
+    test_cases: Array<{
+      uuid: string
+      label: string
+      source_type: string
+      document_uuid: string | null
+      expected_values: Record<string, string>
+    }>
+  }>(
+    `/api/extractions/search-sets/${uuid}/test-cases/approve-bulk`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ proposals }),
+    },
+  )
+}
+
+// Direct apply/revert (without an optimization run — also used when the
+// user accepts a recommended config from elsewhere).
+export function applyExtractionConfig(uuid: string, config: Record<string, unknown>) {
+  return apiFetch<{ ok: boolean; applied_at: string; previous_override: Record<string, unknown> | null }>(
+    `/api/extractions/search-sets/${uuid}/apply-config`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ config }),
+    }
+  )
+}
+
+export function revertExtractionConfig(uuid: string) {
+  return apiFetch<{ ok: boolean }>(
+    `/api/extractions/search-sets/${uuid}/revert-config`,
+    { method: 'POST' }
+  )
+}
+
 // Export / Import
 
 export function exportSearchSetUrl(uuid: string) {

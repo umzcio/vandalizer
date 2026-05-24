@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import datetime
 import json
 import logging
 from typing import TYPE_CHECKING, Optional
+
+from pydantic import BaseModel
 
 if TYPE_CHECKING:
     from app.models.extraction_test_case import ExtractionTestCase
@@ -1129,6 +1132,90 @@ async def create_test_cases_from_extraction(request: Request, user: User = Depen
         raise HTTPException(status_code=400, detail=str(e))
 
 
+# ---------------------------------------------------------------------------
+# Test-case auto-generator (Phase 1B)
+# Two-step flow: generate proposals → user reviews + approves → persisted.
+# Distinct from "from-extraction" above: that flow saves immediately and bakes
+# in the current config's bias. This flow lets the user vet each proposal first.
+# ---------------------------------------------------------------------------
+
+
+class GenerateTestCasesRequest(BaseModel):
+    document_uuids: list[str]
+    coverage: str = "standard"  # "quick" | "standard" | "exhaustive"
+
+
+@router.post("/search-sets/{uuid}/generate-test-cases")
+@limiter.limit("5/minute")
+async def generate_test_case_proposals(
+    request: Request,
+    uuid: str,
+    req: GenerateTestCasesRequest,
+    user: User = Depends(get_current_user),
+) -> dict:
+    """Generate proposed test cases from documents. Proposals are NOT saved
+    until the caller passes them to /test-cases/approve-bulk.
+
+    Body: ``{document_uuids, coverage}``
+    Returns: ``{proposals: [...], errors: [...]}``
+    """
+    await _get_search_set_or_404(uuid, user, manage=True)
+    if not req.document_uuids:
+        raise HTTPException(status_code=400, detail="At least one document_uuid is required")
+    await _authorize_documents(req.document_uuids, user)
+    coverage = req.coverage if req.coverage in ("quick", "standard", "exhaustive") else "standard"
+
+    from app.services.extraction_test_case_generator import generate_proposals
+    try:
+        out = await generate_proposals(
+            search_set_uuid=uuid,
+            user_id=user.user_id,
+            document_uuids=req.document_uuids,
+            coverage=coverage,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return out
+
+
+class ApproveProposalsRequest(BaseModel):
+    proposals: list[dict]
+
+
+@router.post("/search-sets/{uuid}/test-cases/approve-bulk")
+async def approve_test_case_proposals(
+    uuid: str,
+    req: ApproveProposalsRequest,
+    user: User = Depends(get_current_user),
+) -> dict:
+    """Persist approved proposals as ExtractionTestCase records.
+
+    Caller provides the list returned from generate-test-cases (optionally
+    filtered or edited). Each proposal becomes one test case.
+    """
+    await _get_search_set_or_404(uuid, user, manage=True)
+    from app.services.extraction_test_case_generator import persist_approved_proposals
+
+    saved = await persist_approved_proposals(
+        search_set_uuid=uuid,
+        user_id=user.user_id,
+        proposals=req.proposals,
+    )
+    return {
+        "count": len(saved),
+        "test_cases": [
+            {
+                "uuid": tc.uuid,
+                "label": tc.label,
+                "source_type": tc.source_type,
+                "document_uuid": tc.document_uuid,
+                "expected_values": tc.expected_values,
+            }
+            for tc in saved
+        ],
+    }
+
+
 @router.get("/search-sets/{uuid}/history")
 async def get_extraction_history(
     uuid: str, limit: int = 50, user: User = Depends(get_current_user),
@@ -1351,6 +1438,306 @@ async def clear_tuning_result(uuid: str, user: User = Depends(get_current_user))
     """Clear the persisted tuning result."""
     ss = await _get_search_set_or_404(uuid, user, manage=True)
     ss.tuning_result = None
+    await ss.save()
+    return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# Extraction optimization — orchestrates baselines + sweep + best-config apply.
+# Mirrors the KB Autovalidate route surface so the shared frontend can reuse
+# its polling + progress + comparison-card UI.
+# ---------------------------------------------------------------------------
+
+
+def _serialize_extraction_optimization_run(run) -> dict:
+    return {
+        "uuid": run.uuid,
+        "search_set_uuid": run.search_set_uuid,
+        "status": run.status,
+        "phase": run.phase,
+        "progress_message": run.progress_message,
+        "current_trial_index": run.current_trial_index,
+        "total_trials_planned": run.total_trials_planned,
+        "best_score_so_far": run.best_score_so_far,
+        "best_config_so_far": run.best_config_so_far,
+        "token_budget": run.token_budget,
+        "tokens_used": run.tokens_used,
+        "estimated_cost_usd": run.estimated_cost_usd,
+        "actual_cost_usd": run.actual_cost_usd,
+        "baseline_no_tool_score": run.baseline_no_tool_score,
+        "baseline_default_score": run.baseline_default_score,
+        "optimized_score": run.optimized_score,
+        "judge_variance": run.judge_variance,
+        "judge_model": run.judge_model,
+        "best_config": run.best_config,
+        "trials": run.trials,
+        "field_breakdown": run.field_breakdown,
+        "suggestions": run.suggestions,
+        "previous_override": run.previous_override,
+        "options": run.options,
+        "error_message": run.error_message,
+        "started_at": run.started_at.isoformat() if run.started_at else None,
+        "completed_at": run.completed_at.isoformat() if run.completed_at else None,
+        "cancel_requested": run.cancel_requested,
+    }
+
+
+class StartExtractionOptimizationRequest(BaseModel):
+    token_budget: int = 0  # 0 = use max_candidates directly (Phase 1A default)
+    max_candidates: int = 8
+    apply_on_finish: bool = False
+    # Phase 1B: when true, the optimizer uses an LLM judge for semantic-equality
+    # scoring instead of strict string matching. Costs more tokens; produces
+    # less false-failure noise on date/name/format variation.
+    include_judge: bool = False
+
+
+@router.post("/search-sets/{uuid}/optimize")
+@limiter.limit("5/minute")
+async def start_extraction_optimization(
+    request: Request,
+    uuid: str,
+    req: StartExtractionOptimizationRequest,
+    user: User = Depends(get_current_user),
+) -> dict:
+    """Kick off an extraction optimization run.
+
+    Returns ``{run_uuid, status: "queued"}``. The UI polls
+    ``GET /search-sets/{uuid}/optimize/{run_uuid}`` for progress.
+    """
+    from app.models.extraction_optimization_run import ExtractionOptimizationRun
+
+    ss = await _get_search_set_or_404(uuid, user, manage=True)
+
+    # Reject if a non-terminal run already exists.
+    active = await ExtractionOptimizationRun.find_one(
+        ExtractionOptimizationRun.search_set_uuid == ss.uuid,
+        {"status": {"$in": ["queued", "running"]}},
+    )
+    if active:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Optimization already in progress (run {active.uuid})",
+        )
+
+    run = ExtractionOptimizationRun(
+        search_set_uuid=ss.uuid,
+        user_id=user.user_id,
+        status="queued",
+        token_budget=max(0, int(req.token_budget)),
+        options={
+            "apply_on_finish": req.apply_on_finish,
+            "max_candidates": req.max_candidates,
+            "include_judge": req.include_judge,
+        },
+    )
+    await run.insert()
+
+    from app.tasks.extraction_tasks import optimize_extraction_task
+    optimize_extraction_task.delay(
+        ss.uuid, user.user_id, run.uuid,
+        max(0, int(req.token_budget)),
+        bool(req.apply_on_finish),
+        max(1, int(req.max_candidates)),
+        bool(req.include_judge),
+    )
+    return {"run_uuid": run.uuid, "status": "queued"}
+
+
+@router.get("/search-sets/{uuid}/optimize/active")
+async def get_active_extraction_optimization(
+    uuid: str,
+    user: User = Depends(get_current_user),
+) -> dict:
+    """Return the active (queued/running) optimization run, or null."""
+    from app.models.extraction_optimization_run import ExtractionOptimizationRun
+
+    ss = await _get_search_set_or_404(uuid, user)
+    run = await ExtractionOptimizationRun.find_one(
+        ExtractionOptimizationRun.search_set_uuid == ss.uuid,
+        {"status": {"$in": ["queued", "running"]}},
+    )
+    return {"run": _serialize_extraction_optimization_run(run) if run else None}
+
+
+def _summarise_extraction_optimization_run(run) -> dict:
+    """Compact projection of a run for history list views — drops trials and
+    field_breakdown that bloat the response and aren't needed for a list.
+    Mirrors the shape KB's _summarise_optimization_run uses so the shared
+    frontend list pattern works."""
+    return {
+        "uuid": run.uuid,
+        "search_set_uuid": run.search_set_uuid,
+        "status": run.status,
+        "started_at": run.started_at.isoformat() if run.started_at else None,
+        "completed_at": run.completed_at.isoformat() if run.completed_at else None,
+        "token_budget": run.token_budget,
+        "tokens_used": run.tokens_used,
+        "baseline_no_tool_score": run.baseline_no_tool_score,
+        "baseline_default_score": run.baseline_default_score,
+        "optimized_score": run.optimized_score,
+        "judge_model": run.judge_model,
+        "num_trials": len(run.trials or []),
+        "best_config": run.best_config,
+        "options": run.options,
+        "error_message": run.error_message,
+    }
+
+
+@router.get("/search-sets/{uuid}/optimize")
+async def list_extraction_optimization_history(
+    uuid: str,
+    limit: int = Query(20, ge=1, le=100),
+    skip: int = Query(0, ge=0),
+    user: User = Depends(get_current_user),
+) -> dict:
+    """List past optimization runs for this SearchSet, newest first.
+
+    Returns compact summaries (without per-trial detail) so a long history
+    doesn't blow up response size. Use ``GET .../optimize/{run_uuid}`` to fetch
+    the full payload for a specific run.
+    """
+    from app.models.extraction_optimization_run import ExtractionOptimizationRun
+
+    ss = await _get_search_set_or_404(uuid, user)
+    runs = await (
+        ExtractionOptimizationRun.find(ExtractionOptimizationRun.search_set_uuid == ss.uuid)
+        .sort("-started_at")
+        .skip(skip)
+        .limit(limit)
+        .to_list()
+    )
+    return {
+        "items": [_summarise_extraction_optimization_run(r) for r in runs],
+        "skip": skip,
+        "limit": limit,
+        "count": len(runs),
+    }
+
+
+@router.get("/search-sets/{uuid}/optimize/{run_uuid}")
+async def get_extraction_optimization(
+    uuid: str,
+    run_uuid: str,
+    user: User = Depends(get_current_user),
+) -> dict:
+    """Full state of an optimization run (for polling)."""
+    from app.models.extraction_optimization_run import ExtractionOptimizationRun
+
+    ss = await _get_search_set_or_404(uuid, user)
+    run = await ExtractionOptimizationRun.find_one(
+        ExtractionOptimizationRun.uuid == run_uuid,
+        ExtractionOptimizationRun.search_set_uuid == ss.uuid,
+    )
+    if not run:
+        raise HTTPException(status_code=404, detail="Optimization run not found")
+    return _serialize_extraction_optimization_run(run)
+
+
+@router.post("/search-sets/{uuid}/optimize/{run_uuid}/cancel")
+async def cancel_extraction_optimization(
+    uuid: str,
+    run_uuid: str,
+    user: User = Depends(get_current_user),
+) -> dict:
+    """Request cancellation. The worker checks this flag between trials."""
+    from app.models.extraction_optimization_run import ExtractionOptimizationRun
+
+    ss = await _get_search_set_or_404(uuid, user, manage=True)
+    run = await ExtractionOptimizationRun.find_one(
+        ExtractionOptimizationRun.uuid == run_uuid,
+        ExtractionOptimizationRun.search_set_uuid == ss.uuid,
+    )
+    if not run:
+        raise HTTPException(status_code=404, detail="Optimization run not found")
+    if run.status not in ("queued", "running"):
+        return {"ok": True, "status": run.status, "note": "not running"}
+    run.cancel_requested = True
+    await run.save()
+    return {"ok": True, "status": "cancel_requested"}
+
+
+@router.post("/search-sets/{uuid}/optimize/{run_uuid}/apply")
+async def apply_extraction_optimization(
+    uuid: str,
+    run_uuid: str,
+    user: User = Depends(get_current_user),
+) -> dict:
+    """Apply a completed run's best_config to the SearchSet override."""
+    from app.models.extraction_optimization_run import ExtractionOptimizationRun
+
+    ss = await _get_search_set_or_404(uuid, user, manage=True)
+    run = await ExtractionOptimizationRun.find_one(
+        ExtractionOptimizationRun.uuid == run_uuid,
+        ExtractionOptimizationRun.search_set_uuid == ss.uuid,
+    )
+    if not run:
+        raise HTTPException(status_code=404, detail="Optimization run not found")
+    if run.status != "completed":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot apply — run status is '{run.status}', expected 'completed'",
+        )
+    if not run.best_config:
+        raise HTTPException(status_code=400, detail="Run has no best_config to apply")
+
+    # Persist previous override on the run so revert can restore it.
+    run.previous_override = ss.extraction_config_override
+    ss.extraction_config_override = dict(run.best_config)
+    ss.extraction_config_override_set_at = datetime.datetime.now(tz=datetime.timezone.utc)
+    await ss.save()
+    await run.save()
+    return {"ok": True, "applied_config": ss.extraction_config_override}
+
+
+# ---------------------------------------------------------------------------
+# Optimizer apply-back: write the chosen config to extraction_config_override.
+# Revert clears it. The optimization-run document records what was overridden
+# so future revert/apply cycles still see the original authored config.
+# ---------------------------------------------------------------------------
+
+
+class ApplyExtractionConfigRequest(BaseModel):
+    config: dict  # the optimizer-chosen config to apply
+
+
+@router.post("/search-sets/{uuid}/apply-config")
+async def apply_extraction_config(
+    uuid: str,
+    req: ApplyExtractionConfigRequest,
+    user: User = Depends(get_current_user),
+) -> dict:
+    """Apply an optimizer-chosen extraction config to this SearchSet.
+
+    Sets ``extraction_config_override`` (takes precedence over the user's
+    authored ``extraction_config`` at run time). The previous override (if
+    any) is included in the response so callers can persist it for revert.
+    """
+    if not isinstance(req.config, dict) or not req.config:
+        raise HTTPException(status_code=400, detail="config must be a non-empty dict")
+    ss = await _get_search_set_or_404(uuid, user, manage=True)
+    previous = ss.extraction_config_override
+    ss.extraction_config_override = req.config
+    ss.extraction_config_override_set_at = datetime.datetime.now(tz=datetime.timezone.utc)
+    await ss.save()
+    return {
+        "ok": True,
+        "applied_at": ss.extraction_config_override_set_at.isoformat(),
+        "previous_override": previous,
+    }
+
+
+@router.post("/search-sets/{uuid}/revert-config")
+async def revert_extraction_config(
+    uuid: str,
+    user: User = Depends(get_current_user),
+) -> dict:
+    """Clear the optimizer override. The user's authored extraction_config is
+    used again at run time.
+    """
+    ss = await _get_search_set_or_404(uuid, user, manage=True)
+    ss.extraction_config_override = None
+    ss.extraction_config_override_set_at = None
     await ss.save()
     return {"ok": True}
 

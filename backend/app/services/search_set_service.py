@@ -90,6 +90,33 @@ async def get_search_set(search_set_uuid: str) -> SearchSet | None:
     return await SearchSet.find_one(SearchSet.uuid == search_set_uuid)
 
 
+def effective_extraction_config(ss: SearchSet | dict | None) -> dict:
+    """Resolve the extraction config that should actually be used at run time.
+
+    When the optimizer has applied a config (``extraction_config_override`` is
+    set), that wins. Otherwise the user's authored ``extraction_config`` is
+    returned. Both empty → returns an empty dict.
+
+    Accepts either a SearchSet Beanie document or a raw pymongo dict (Celery
+    tasks read with `db.search_set.find_one` and don't bother hydrating).
+
+    All ExtractionEngine callers should resolve through this helper so the
+    optimizer's apply-back is honored uniformly across extraction, verification,
+    workflow, and passive tasks.
+    """
+    if ss is None:
+        return {}
+    if isinstance(ss, dict):
+        override = ss.get("extraction_config_override")
+        base = ss.get("extraction_config")
+    else:
+        override = getattr(ss, "extraction_config_override", None)
+        base = ss.extraction_config
+    if isinstance(override, dict) and override:
+        return override
+    return base or {}
+
+
 async def get_search_set_item(item_id: str) -> SearchSetItem | None:
     try:
         return await SearchSetItem.get(PydanticObjectId(item_id))
@@ -467,11 +494,10 @@ async def run_extraction_sync(
     if not model:
         model = await get_user_model_name(user_id)
 
-    # Load per-searchset config override
+    # Load per-searchset config (optimizer override wins, else user's authored config)
     ss = await get_search_set(search_set_uuid)
     combined_override = {}
-    if ss and ss.extraction_config:
-        combined_override.update(ss.extraction_config)
+    combined_override.update(effective_extraction_config(ss))
     if extraction_config_override:
         combined_override.update(extraction_config_override)
 

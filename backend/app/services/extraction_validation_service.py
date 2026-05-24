@@ -12,7 +12,12 @@ from app.models.extraction_test_case import ExtractionTestCase
 from app.models.system_config import SystemConfig
 from app.services.config_service import get_user_model_name
 from app.services.extraction_engine import ExtractionEngine
-from app.services.search_set_service import get_extraction_field_metadata, get_extraction_keys, get_search_set
+from app.services.search_set_service import (
+    effective_extraction_config,
+    get_extraction_field_metadata,
+    get_extraction_keys,
+    get_search_set,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -138,7 +143,7 @@ async def create_test_cases_from_extraction(
         model = await get_user_model_name(user_id)
 
     ss = await get_search_set(search_set_uuid)
-    extraction_config_override = (ss.extraction_config if ss and ss.extraction_config else None)
+    extraction_config_override = effective_extraction_config(ss) or None
 
     sys_config = await SystemConfig.get_config()
     sys_config_doc = sys_config.model_dump() if sys_config else {}
@@ -222,7 +227,7 @@ async def run_validation(
 
     # Load per-searchset config
     ss = await get_search_set(search_set_uuid)
-    extraction_config_override = (ss.extraction_config if ss and ss.extraction_config else None)
+    extraction_config_override = effective_extraction_config(ss) or None
 
     # Pre-fetch system config
     sys_config = await SystemConfig.get_config()
@@ -930,9 +935,7 @@ async def run_validation_v2(
         model = await get_user_model_name(user_id)
 
     ss = await get_search_set(search_set_uuid)
-    extraction_config_override = (
-        ss.extraction_config if ss and ss.extraction_config else None
-    )
+    extraction_config_override = effective_extraction_config(ss) or None
 
     sys_config = await SystemConfig.get_config()
     sys_config_doc = sys_config.model_dump() if sys_config else {}

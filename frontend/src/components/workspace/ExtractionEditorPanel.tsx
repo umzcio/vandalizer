@@ -37,6 +37,7 @@ import type { ValidationV2Result, QualityHistoryRun, ValidationSource, TuningRes
 import { findBestSettingsStream } from '../../api/extractions'
 import { DocumentPickerDialog } from '../shared/DocumentPickerDialog'
 import { VerificationSubmitDialog } from '../shared/VerificationSubmitDialog'
+import { ExtractionAutovalidatePanel } from '../extractions/ExtractionAutovalidatePanel'
 import { getModels } from '../../api/config'
 import type { SearchSet, ModelInfo } from '../../types/workflow'
 import { LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer } from 'recharts'
@@ -2719,6 +2720,13 @@ function ValidateTab({
 
   return (
     <div style={{ padding: 24, display: 'flex', flexDirection: 'column', gap: 20 }}>
+      {/* Improve quality (autovalidate optimizer) */}
+      <ExtractionAutovalidatePanel
+        searchSetUuid={searchSetUuid}
+        canManage={true}
+        onApplied={() => { onValidationComplete?.() }}
+      />
+
       {/* 1. Source Management */}
       <div>
         <div

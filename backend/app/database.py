@@ -29,6 +29,7 @@ from app.models.kb_test_query import KBTestQuery
 from app.models.kb_optimization_run import KBOptimizationRun
 from app.models.kb_suggestion import KBSuggestion
 from app.models.extraction_test_case import ExtractionTestCase
+from app.models.extraction_optimization_run import ExtractionOptimizationRun
 from app.models.validation_run import ValidationRun
 from app.models.quality_alert import QualityAlert
 from app.models.demo import DemoApplication, PostExperienceResponse
@@ -85,6 +86,7 @@ ALL_MODELS = [
     KBOptimizationRun,
     KBSuggestion,
     ExtractionTestCase,
+    ExtractionOptimizationRun,
     ValidationRun,
     QualityAlert,
     DemoApplication,
