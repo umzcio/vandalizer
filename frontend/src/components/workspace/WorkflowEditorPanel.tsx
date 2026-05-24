@@ -5172,7 +5172,26 @@ function ValidateTab({
   // Validation results state
   const [validating, setValidating] = useState(false)
   const [checks, setChecks] = useState<ValidationCheck[]>([])
-  const [gradeInfo, setGradeInfo] = useState<{ grade: string; summary: string } | null>(null)
+  const [gradeInfo, setGradeInfo] = useState<{ grade: string; summary: string; variancePts: number | null } | null>(null)
+  // Phase 2A diagnostic: the no-workflow baseline + lift readout. Stored separately
+  // from gradeInfo so older code paths that only update grade continue to work.
+  const [baselineInfo, setBaselineInfo] = useState<{
+    baselineScore: number
+    workflowScore: number
+    lift: number
+  } | null>(null)
+  // Phase 2A diagnostic: per-step pass/warn/fail breakdown. Empty array =
+  // single-step workflow, no breakdown to render.
+  const [stepBreakdown, setStepBreakdown] = useState<Array<{
+    step: string
+    score: number
+    pass: number
+    warn: number
+    fail: number
+    skip: number
+    total: number
+    evaluated: number
+  }>>([])
   const [error, setError] = useState<string | null>(null)
 
   // Quality history & suggestions
@@ -5282,7 +5301,23 @@ function ValidateTab({
     try {
       const res = await validateWorkflow(workflowId)
       setChecks(res.checks)
-      setGradeInfo({ grade: res.grade, summary: res.summary })
+      setGradeInfo({
+        grade: res.grade,
+        summary: res.summary,
+        // Phase 2A: confidence interval on the grade. 1.96σ = 95% CI half-width
+        // in points. Null when variance not measurable.
+        variancePts: res.judge_variance != null ? res.judge_variance * 1.96 * 100 : null,
+      })
+      setBaselineInfo(
+        res.baseline_no_workflow_score != null && res.quality_score != null
+          ? {
+              baselineScore: res.baseline_no_workflow_score,
+              workflowScore: res.quality_score,
+              lift: res.lift_vs_no_workflow ?? (res.quality_score - res.baseline_no_workflow_score),
+            }
+          : null
+      )
+      setStepBreakdown(res.step_breakdown ?? [])
       getWorkflowQualityHistory(workflowId)
         .then(r => setQualityHistory(r.runs))
         .catch(() => {})
@@ -5370,7 +5405,23 @@ function ValidateTab({
       setRunProgress('Evaluating output...')
       const res = await validateWorkflow(workflowId)
       setChecks(res.checks)
-      setGradeInfo({ grade: res.grade, summary: res.summary })
+      setGradeInfo({
+        grade: res.grade,
+        summary: res.summary,
+        // Phase 2A: confidence interval on the grade. 1.96σ = 95% CI half-width
+        // in points. Null when variance not measurable.
+        variancePts: res.judge_variance != null ? res.judge_variance * 1.96 * 100 : null,
+      })
+      setBaselineInfo(
+        res.baseline_no_workflow_score != null && res.quality_score != null
+          ? {
+              baselineScore: res.baseline_no_workflow_score,
+              workflowScore: res.quality_score,
+              lift: res.lift_vs_no_workflow ?? (res.quality_score - res.baseline_no_workflow_score),
+            }
+          : null
+      )
+      setStepBreakdown(res.step_breakdown ?? [])
       getWorkflowQualityHistory(workflowId)
         .then(r => setQualityHistory(r.runs))
         .catch(() => {})
@@ -6013,11 +6064,31 @@ function ValidateTab({
                   {gradeInfo.grade}
                 </span>
               </div>
-              <div>
+              <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 14, fontWeight: 600, color: '#202124' }}>Validation Grade</div>
                 <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>{gradeInfo.summary}</div>
               </div>
+              {gradeInfo.variancePts != null && (
+                <div style={{
+                  fontSize: 11, color: '#6b7280', whiteSpace: 'nowrap',
+                  padding: '4px 8px', backgroundColor: '#f3f4f6',
+                  borderRadius: 6, fontFamily: 'inherit',
+                }}
+                title="95% confidence interval — how much the grade could swing on a re-evaluation, based on how often check verdicts flipped when re-judged.">
+                  ± {gradeInfo.variancePts.toFixed(1)} pts
+                </div>
+              )}
             </div>
+
+            {/* No-workflow baseline lift — answers "is this workflow worth its complexity?" */}
+            {baselineInfo && (
+              <NoWorkflowLiftCard info={baselineInfo} />
+            )}
+
+            {/* Per-step breakdown — answers "which step is dragging the score?" */}
+            {stepBreakdown.length > 0 && (
+              <StepBreakdownCard steps={stepBreakdown} />
+            )}
 
             {/* Improvement Suggestions */}
             {gradeInfo.grade !== 'A' && (
@@ -6517,4 +6588,185 @@ function WorkflowApiCodeBlock({ title, code, id, copied, onCopy, style }: {
       <div style={style}>{code}</div>
     </div>
   )
+}
+
+
+/**
+ * No-workflow baseline lift card. Answers "is this workflow worth its complexity?"
+ *
+ * Positive lift = workflow earns its complexity. Zero or negative = a single
+ * LLM prompt does about as well, suggesting the workflow may not be pulling
+ * its weight. We don't propose deleting — just surface the number so the
+ * user can decide.
+ */
+function NoWorkflowLiftCard({
+  info,
+}: {
+  info: { baselineScore: number; workflowScore: number; lift: number }
+}) {
+  const { baselineScore, workflowScore, lift } = info
+  const liftPositive = lift > 5
+  const liftNeutral = lift >= -5 && lift <= 5
+  const liftColor = liftPositive ? '#16a34a' : liftNeutral ? '#d97706' : '#dc2626'
+  const liftBg = liftPositive ? '#f0fdf4' : liftNeutral ? '#fffbeb' : '#fef2f2'
+  const liftBorder = liftPositive ? '#bbf7d0' : liftNeutral ? '#fde68a' : '#fecaca'
+
+  const verdict = liftPositive
+    ? 'Your workflow is earning its complexity'
+    : liftNeutral
+      ? 'A single LLM prompt does about as well'
+      : 'A single LLM prompt is doing better'
+  const explanation = liftPositive
+    ? 'The multi-step workflow scores meaningfully better than just asking the AI directly. The orchestration is doing real work.'
+    : liftNeutral
+      ? "For this validation run, the workflow and a single prompt land in the same range. Consider whether the workflow's complexity is worth maintaining."
+      : 'A single LLM prompt scored higher than your workflow on this validation run. Worth investigating — the workflow may have a step that hurts more than it helps.'
+
+  return (
+    <div style={{
+      padding: 16, border: `1px solid ${liftBorder}`, borderRadius: 8,
+      backgroundColor: liftBg,
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: liftColor }}>
+          {verdict}
+        </div>
+        <span style={{
+          marginLeft: 'auto', fontSize: 18, fontWeight: 800, color: liftColor,
+        }}>
+          {lift > 0 ? '+' : ''}{lift.toFixed(0)} pts
+        </span>
+      </div>
+      <div style={{ display: 'flex', gap: 20, marginBottom: 10 }}>
+        <ScoreRow label="Your workflow" score={workflowScore} color="#3b82f6" />
+        <ScoreRow label="No workflow (single prompt)" score={baselineScore} color="#9ca3af" />
+      </div>
+      <p style={{ margin: 0, fontSize: 12, color: '#4b5563', lineHeight: 1.5 }}>
+        {explanation}
+      </p>
+    </div>
+  )
+}
+
+
+function ScoreRow({ label, score, color }: { label: string; score: number; color: string }) {
+  return (
+    <div>
+      <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 2 }}>{label}</div>
+      <div style={{ fontSize: 18, fontWeight: 700, color }}>
+        {score.toFixed(0)}%
+      </div>
+    </div>
+  )
+}
+
+
+/**
+ * Per-step quality breakdown card. Surfaces which step is weakest so the user
+ * has a focused starting point for fixes, instead of a single grade with no
+ * actionable target.
+ *
+ * Each row: step name + score bar + status counts (pass / warn / fail / skip).
+ * Score color follows the same green / amber / red banding as the overall grade.
+ */
+function StepBreakdownCard({
+  steps,
+}: {
+  steps: Array<{
+    step: string
+    score: number
+    pass: number
+    warn: number
+    fail: number
+    skip: number
+    total: number
+    evaluated: number
+  }>
+}) {
+  // Highlight the worst step so the user knows where to look first
+  const worst = steps.reduce((a, b) => (a.score <= b.score ? a : b))
+  const allStrong = steps.every(s => s.score >= 85)
+
+  return (
+    <div style={{
+      padding: 16, border: '1px solid #e5e7eb', borderRadius: 8,
+      backgroundColor: '#fff',
+    }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 12 }}>
+        <span style={{ fontSize: 14, fontWeight: 600, color: '#202124' }}>
+          Per-step quality
+        </span>
+        <span style={{ fontSize: 12, color: '#6b7280' }}>
+          {allStrong
+            ? 'Every step is performing well.'
+            : `Weakest: ${worst.step}`}
+        </span>
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {steps.map(s => (
+          <StepRow key={s.step} step={s} isWorst={!allStrong && s.step === worst.step} />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+
+function StepRow({
+  step, isWorst,
+}: {
+  step: { step: string; score: number; pass: number; warn: number; fail: number; skip: number; evaluated: number }
+  isWorst: boolean
+}) {
+  const color = scoreColorForStep(step.score)
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: 12,
+      padding: '8px 10px',
+      backgroundColor: isWorst ? '#fef2f2' : '#f9fafb',
+      border: '1px solid ' + (isWorst ? '#fecaca' : '#e5e7eb'),
+      borderRadius: 6,
+    }}>
+      <div style={{ minWidth: 140, fontSize: 13, fontWeight: 500, color: '#1f2937' }}>
+        {step.step}
+      </div>
+      {/* Score bar */}
+      <div style={{ flex: 1, height: 8, backgroundColor: '#f3f4f6', borderRadius: 4, overflow: 'hidden' }}>
+        <div style={{
+          width: `${Math.max(2, step.score)}%`, height: '100%',
+          backgroundColor: color, transition: 'width 0.3s',
+        }} />
+      </div>
+      <div style={{ minWidth: 42, fontSize: 13, fontWeight: 700, color, textAlign: 'right' }}>
+        {step.score.toFixed(0)}%
+      </div>
+      {/* Status counts */}
+      <div style={{ display: 'flex', gap: 4, minWidth: 110, fontSize: 11, color: '#6b7280' }}>
+        {step.pass > 0 && <Pill label={`${step.pass} pass`} color="#16a34a" />}
+        {step.warn > 0 && <Pill label={`${step.warn} warn`} color="#d97706" />}
+        {step.fail > 0 && <Pill label={`${step.fail} fail`} color="#dc2626" />}
+        {step.skip > 0 && <Pill label={`${step.skip} skip`} color="#9ca3af" />}
+      </div>
+    </div>
+  )
+}
+
+
+function Pill({ label, color }: { label: string; color: string }) {
+  return (
+    <span style={{
+      padding: '2px 6px', fontSize: 10, fontWeight: 600,
+      color, backgroundColor: `${color}1a`, borderRadius: 4,
+      whiteSpace: 'nowrap',
+    }}>
+      {label}
+    </span>
+  )
+}
+
+
+function scoreColorForStep(s: number): string {
+  if (s >= 85) return '#16a34a'
+  if (s >= 60) return '#d97706'
+  return '#dc2626'
 }

@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import datetime
+import logging
 import uuid as uuid_mod
 from typing import TYPE_CHECKING
+
+logger = logging.getLogger(__name__)
 
 from beanie import PydanticObjectId
 from bson import ObjectId
@@ -1265,6 +1268,333 @@ def _structured_field_stability(results: list) -> float | None:
     return consistent / len(all_keys)
 
 
+_STATUS_TO_SCORE = {"PASS": 1.0, "WARN": 0.5, "FAIL": 0.0}
+
+
+async def _sample_workflow_judge_variance(
+    *,
+    plan: list[dict],
+    last_result,
+    wf_data: dict,
+    original_checks_per_run: list[list[dict]],
+) -> float | None:
+    """Re-evaluate one workflow run and measure verdict stability.
+
+    The workflow validator runs ``_evaluate_checks_against_output`` once per
+    completed execution. To estimate judge nondeterminism, we replay that
+    evaluation against the most-recent run and compare per-check verdicts to
+    the original ones.
+
+    Returns:
+        stddev of per-check score deltas (0-1 scale, matches the shared
+        ``judge_variance`` semantics), or None when not measurable. Tokens used
+        by the replay are implicit (one extra LLM call per validation).
+
+    Why one re-eval, not more: the workflow's overall score is already an
+    aggregate over N runs, so the noise floor doesn't need many samples to be
+    useful. One replay catches verdict-flip frequency; more replays cost a lot
+    for marginal precision improvement.
+    """
+    if not plan or not original_checks_per_run or not last_result:
+        return None
+
+    output_text = _serialize_output(getattr(last_result, "final_output", None))
+    if output_text is None:
+        return None
+
+    # Pick the run whose checks we'll compare against. Most-recent matches what
+    # `validate_workflow` displays as the primary state.
+    original_checks = original_checks_per_run[0]
+    if not original_checks:
+        return None
+
+    try:
+        replay = await _evaluate_checks_against_output(
+            plan, output_text, getattr(last_result, "steps_output", None) or {}, wf_data,
+        )
+    except Exception as e:
+        logger.warning("Workflow judge variance replay failed: %s", e)
+        return None
+
+    replay_by_id = {str(c.get("check_id", "")): c for c in (replay or [])}
+    samples: list[tuple[dict, dict]] = []
+    for orig in original_checks:
+        cid = str(orig.get("check_id", ""))
+        rep = replay_by_id.get(cid)
+        if not rep:
+            continue
+        if orig.get("status") == "SKIP" or rep.get("status") == "SKIP":
+            # SKIP isn't a signal — judge couldn't evaluate this check in one
+            # or both passes (likely binary output or evaluator error).
+            continue
+        samples.append((orig, rep))
+
+    if len(samples) < 2:
+        return None  # Not enough comparable verdicts to compute stddev
+
+    from app.services.judge_variance import sample_judge_variance
+
+    async def _judge_replay(sample: tuple[dict, dict]) -> tuple[float, int]:
+        # The replay score is already computed — just return it.
+        rep = sample[1]
+        score = _STATUS_TO_SCORE.get(rep.get("status", ""), 0.0)
+        return score, 0  # tokens already counted in the replay LLM call
+
+    variance, _tokens = await sample_judge_variance(
+        samples=samples,
+        judge_fn=_judge_replay,
+        original_score=lambda s: _STATUS_TO_SCORE.get(s[0].get("status", ""), 0.0),
+        max_samples=len(samples),  # use everything — we already have all replay verdicts
+    )
+    return variance
+
+
+def _compute_step_breakdown(plan: list[dict], checks: list[dict]) -> list[dict]:
+    """Aggregate per-check verdicts by ``target_step`` so the UI can show
+    *which* step is dragging the score, not just that the score is dragging.
+
+    No new judge calls — this is pure re-aggregation of existing verdicts.
+
+    Returns a list of step entries ordered by step name (stable). Each entry:
+        {
+          "step": str,             # target_step name, or "Unassigned" when missing
+          "score": float,          # 0-100, weighted PASS/WARN/FAIL ratio
+          "pass": int,             # PASS count
+          "warn": int,
+          "fail": int,
+          "skip": int,
+          "total": int,            # all checks including SKIP
+          "evaluated": int,        # total minus SKIP
+        }
+
+    Returns an empty list when there's only one (or zero) distinct target_step
+    — the breakdown wouldn't add information vs. the overall grade in that case.
+    """
+    # Map check_id → (target_step, category) using the plan as the source of truth
+    target_lookup: dict[str, tuple[str, str]] = {}
+    for p in plan or []:
+        cid = str(p.get("id", ""))
+        if not cid:
+            continue
+        step = (p.get("target_step") or "").strip()
+        cat = p.get("category", "content")
+        target_lookup[cid] = (step or "Unassigned", cat)
+
+    # Group checks by step name
+    by_step: dict[str, dict] = {}
+    for c in checks or []:
+        cid = str(c.get("check_id", ""))
+        step, cat = target_lookup.get(cid, ("Unassigned", "content"))
+        status = c.get("status", "SKIP")
+        bucket = by_step.setdefault(step, {
+            "step": step,
+            "pass": 0, "warn": 0, "fail": 0, "skip": 0,
+            "weighted_sum": 0.0, "weight_total": 0.0,
+        })
+        # Status counts
+        if status == "PASS":
+            bucket["pass"] += 1
+        elif status == "WARN":
+            bucket["warn"] += 1
+        elif status == "FAIL":
+            bucket["fail"] += 1
+        else:
+            bucket["skip"] += 1
+        # Weighted score contribution (matches _build_result's formula)
+        if status != "SKIP":
+            w = _CATEGORY_WEIGHTS.get(cat, 1.0)
+            status_val = {"PASS": 1.0, "WARN": 0.5, "FAIL": 0.0}.get(status, 0.0)
+            bucket["weighted_sum"] += status_val * w
+            bucket["weight_total"] += w
+
+    # Suppress when only one step appears — the breakdown would just restate the overall
+    if len(by_step) <= 1:
+        return []
+
+    # Materialize: compute score per step, drop intermediate sums
+    breakdown: list[dict] = []
+    for step_name in sorted(by_step.keys()):
+        b = by_step[step_name]
+        total = b["pass"] + b["warn"] + b["fail"] + b["skip"]
+        evaluated = total - b["skip"]
+        score = (b["weighted_sum"] / b["weight_total"]) * 100 if b["weight_total"] > 0 else 0.0
+        breakdown.append({
+            "step": step_name,
+            "score": round(score, 1),
+            "pass": b["pass"],
+            "warn": b["warn"],
+            "fail": b["fail"],
+            "skip": b["skip"],
+            "total": total,
+            "evaluated": evaluated,
+        })
+    return breakdown
+
+
+# ---------------------------------------------------------------------------
+# No-workflow baseline (Phase 2A)
+#
+# Answers the user's "is this workflow earning its complexity?" question:
+# given the same input the workflow ran on, what does a single-shot LLM call
+# produce — and how does its score against the validation plan compare to the
+# workflow's score?
+#
+# This isn't an optimizer; it's a diagnostic. We don't propose deleting the
+# workflow. We just surface the lift number so the user can decide.
+# ---------------------------------------------------------------------------
+
+
+_NO_WORKFLOW_BASELINE_SYSTEM_PROMPT = (
+    "You are doing in a single shot what a multi-step workflow would do. "
+    "Read the instructions carefully, read the input, and produce the output "
+    "the workflow would produce. Be concise — match the format the workflow "
+    "would use. Output the result directly with no preamble."
+)
+
+
+def _build_baseline_instructions(wf_data: dict | None) -> str:
+    """Concatenate workflow-level + step-level descriptions into a single
+    instruction blob for the no-workflow counterfactual.
+
+    The LLM sees what the workflow was *trying to do* without seeing the
+    decomposition. If the description is empty, fall back to step names so
+    the model has at least a list of intents to follow.
+    """
+    if not wf_data:
+        return ""
+    parts: list[str] = []
+    name = (wf_data.get("name") or "").strip()
+    desc = (wf_data.get("description") or "").strip()
+    if name:
+        parts.append(f"Task: {name}")
+    if desc:
+        parts.append(desc)
+    # Step intents — only step names + short descriptions, not full task config.
+    steps = wf_data.get("steps") or []
+    step_intents: list[str] = []
+    for s in steps:
+        sname = (s.get("name") or "").strip() if isinstance(s, dict) else ""
+        sdesc = (s.get("description") or "").strip() if isinstance(s, dict) else ""
+        if sname and sdesc:
+            step_intents.append(f"- {sname}: {sdesc}")
+        elif sname:
+            step_intents.append(f"- {sname}")
+    if step_intents:
+        parts.append("The workflow performs these steps end-to-end:\n" + "\n".join(step_intents))
+    return "\n\n".join(parts)
+
+
+def _extract_source_text_from_steps(steps_output: dict | None) -> str:
+    """Pull the source document text from a WorkflowResult's steps_output.
+
+    Workflows typically start with a Document or AddDocument step that loads
+    the raw text. That's the "input" the no-workflow baseline needs to consume.
+    """
+    if not steps_output:
+        return ""
+    for step_name, step_data in steps_output.items():
+        if step_name.lower() in ("document", "adddocument") or (
+            isinstance(step_data, dict) and step_data.get("step_name") in ("Document", "AddDocument")
+        ):
+            raw = step_data.get("output", step_data) if isinstance(step_data, dict) else step_data
+            if isinstance(raw, str) and raw.strip():
+                return raw
+    return ""
+
+
+async def _measure_no_workflow_baseline(
+    *,
+    wf_data: dict,
+    last_result,
+    user_id: str | None = None,
+) -> dict | None:
+    """Run a single-shot LLM call as a counterfactual to the workflow.
+
+    Returns:
+        {
+          "score": float (0-100),
+          "checks": list[dict],            # per-check verdicts on the single-shot output
+          "output": str,                   # the LLM's single-shot answer
+          "weighted_pass_rate": float,     # for comparison to the workflow's metric
+        }
+        or None when we can't measure (no input text, no plan, LLM error).
+
+    Side-effects: none. This is a pure read + LLM-call helper. The caller wires
+    its score into the validation result dict.
+    """
+    from app.services.workflow_validator import _resolve_model_name
+    from app.services.llm_service import get_agent_model
+    from pydantic_ai import Agent
+
+    plan = (wf_data or {}).get("validation_plan", []) if wf_data else []
+    if not plan:
+        return None  # no checks to score against
+
+    source_text = _extract_source_text_from_steps(
+        getattr(last_result, "steps_output", None)
+    )
+    if not source_text:
+        # Workflow input isn't a document text we can reuse — skip.
+        return None
+
+    instructions = _build_baseline_instructions(wf_data)
+    if not instructions:
+        return None  # nothing to instruct the model with
+
+    user_prompt = (
+        f"{instructions}\n\n"
+        f"---\nInput document:\n{source_text[:30_000]}\n---\n\n"
+        "Now produce the workflow's expected output for this input."
+    )
+
+    try:
+        model_name = _resolve_model_name(user_id)
+        model = get_agent_model(model_name)
+        agent = Agent(model, system_prompt=_NO_WORKFLOW_BASELINE_SYSTEM_PROMPT)
+        result = await agent.run(user_prompt)
+        baseline_output = (result.output or "").strip()
+    except Exception as e:
+        logger.warning("No-workflow baseline LLM call failed: %s", e)
+        return None
+
+    if not baseline_output:
+        return None
+
+    # Evaluate via the same checks the workflow runs. steps_output for the
+    # baseline is empty (no intermediate steps); wf_data carries the plan.
+    try:
+        baseline_checks = await _evaluate_checks_against_output(
+            plan, baseline_output, {}, wf_data,
+        )
+    except Exception as e:
+        logger.warning("No-workflow baseline check evaluation failed: %s", e)
+        return None
+
+    # Score with the same weighted-pass formula as the workflow result. We use
+    # a lightweight inline calculation rather than _build_result to avoid
+    # persisting a ValidationRun for the baseline (it's diagnostic, not a run).
+    cat_lookup: dict[str, str] = {c["id"]: c.get("category", "content") for c in plan}
+    weighted_sum = 0.0
+    weight_total = 0.0
+    for c in baseline_checks:
+        if c.get("status") == "SKIP":
+            continue
+        cat = cat_lookup.get(c.get("check_id", ""), "content")
+        w = _CATEGORY_WEIGHTS.get(cat, 1.0)
+        status_val = {"PASS": 1.0, "WARN": 0.5, "FAIL": 0.0}.get(c.get("status", ""), 0.0)
+        weighted_sum += status_val * w
+        weight_total += w
+    weighted_pass_rate = weighted_sum / weight_total if weight_total > 0 else 0.0
+    score = round(weighted_pass_rate * 100, 1)
+
+    return {
+        "score": score,
+        "checks": baseline_checks,
+        "output": baseline_output[:5000],  # truncate; full text isn't needed downstream
+        "weighted_pass_rate": round(weighted_pass_rate, 4),
+    }
+
+
 async def validate_workflow(workflow_id: str, user: User | None = None) -> dict:
     """Evaluate the last N executions' output against the persisted validation plan."""
     if user is not None:
@@ -1338,11 +1668,32 @@ async def validate_workflow(workflow_id: str, user: User | None = None) -> dict:
     if expected_outputs and last_results:
         output_comparison = _compare_outputs(last_results, expected_outputs)
 
+    # No-workflow baseline (Phase 2A): how would a single-shot LLM call score
+    # against the same checks? Surfaces the "is this workflow earning its
+    # complexity?" diagnostic. Best-effort — None when not measurable.
+    baseline_no_workflow = await _measure_no_workflow_baseline(
+        wf_data=wf_data,
+        last_result=last_results[0] if last_results else None,
+        user_id=user.user_id if user else None,
+    )
+
+    # Judge variance (Phase 2A): re-evaluate the most-recent run and measure
+    # how often verdicts flip. Drives the "± N pts" CI on the grade so users
+    # know whether a borderline PASS could swing to FAIL on the next run.
+    judge_variance = await _sample_workflow_judge_variance(
+        plan=plan,
+        last_result=last_results[0],
+        wf_data=wf_data,
+        original_checks_per_run=all_run_checks,
+    )
+
     return await _build_result(
         checks, workflow_id, wf_data,
         num_runs=len(all_run_checks),
         output_comparison=output_comparison,
         stability_data=stability_data,
+        baseline_no_workflow=baseline_no_workflow,
+        judge_variance=judge_variance,
     )
 
 
@@ -1692,6 +2043,8 @@ async def _build_result(
     num_runs: int = 1,
     output_comparison: dict | None = None,
     stability_data: dict | None = None,
+    baseline_no_workflow: dict | None = None,
+    judge_variance: float | None = None,
 ) -> dict:
     """Compute separate quality / stability scores, combined score, grade, and persist."""
     statuses = [c["status"] for c in checks]
@@ -1772,6 +2125,22 @@ async def _build_result(
         parts.append(f"{avg_evaluator_consistency*100:.0f}% evaluator agreement")
     summary = ", ".join(parts)
 
+    # No-workflow baseline lift: how much better the workflow is than a
+    # single-shot LLM call. Null when baseline not measurable.
+    baseline_no_workflow_score = (
+        baseline_no_workflow.get("score") if baseline_no_workflow else None
+    )
+    lift_vs_no_workflow = (
+        round(quality_score - baseline_no_workflow_score, 1)
+        if baseline_no_workflow_score is not None
+        else None
+    )
+
+    # Per-step breakdown (Phase 2A): which step is dragging the score?
+    # Empty list when all checks target the same step (or no target_step set)
+    # — the breakdown wouldn't add information vs. the overall grade.
+    step_breakdown = _compute_step_breakdown(plan, checks)
+
     result_dict = {
         "grade": grade,
         "summary": summary,
@@ -1786,6 +2155,11 @@ async def _build_result(
         "num_runs": num_runs,
         "num_checks": total,
         "output_comparison": output_comparison,
+        "baseline_no_workflow_score": baseline_no_workflow_score,
+        "lift_vs_no_workflow": lift_vs_no_workflow,
+        "baseline_no_workflow_detail": baseline_no_workflow,
+        "step_breakdown": step_breakdown,
+        "judge_variance": judge_variance,
     }
 
     from app.services.quality_service import persist_validation_run

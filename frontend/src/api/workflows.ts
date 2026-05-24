@@ -354,6 +354,37 @@ export interface ValidationResult {
   grade: string
   summary: string
   checks: ValidationCheck[]
+  // Phase 2A diagnostic: how the workflow scores against a single-shot LLM
+  // counterfactual. lift_vs_no_workflow is positive when the workflow earns
+  // its complexity, negative when a single prompt would do as well or better.
+  baseline_no_workflow_score?: number | null
+  lift_vs_no_workflow?: number | null
+  baseline_no_workflow_detail?: {
+    score: number
+    output: string
+    weighted_pass_rate: number
+    checks: Array<{ check_id?: string; status: string }>
+  } | null
+  // Surfaced for the lift readout — quality_score is the workflow's own
+  // score (separate from the overall score that blends in stability).
+  quality_score?: number
+  // Per-step quality breakdown — drives the "which step is weak?" UI.
+  // Empty array when the workflow has a single step (the breakdown wouldn't
+  // add information vs. the overall grade in that case).
+  step_breakdown?: Array<{
+    step: string
+    score: number       // 0-100
+    pass: number
+    warn: number
+    fail: number
+    skip: number
+    total: number
+    evaluated: number
+  }>
+  // Judge nondeterminism (0-1 scale). UI multiplies by 1.96 × 100 to render
+  // a 95% confidence interval in points on the grade score. Null when not
+  // enough comparable verdicts to compute.
+  judge_variance?: number | null
 }
 
 export function validateWorkflow(workflowId: string) {
