@@ -961,6 +961,20 @@ export function LibraryTab() {
                         <button
                           onClick={async (e) => {
                             e.stopPropagation()
+                            const ok = await confirm({
+                              title: 'Delete folder?',
+                              message: (
+                                <>
+                                  Are you sure you want to delete the folder <strong>{folder.name}</strong>? Items inside will be moved out of the folder (not deleted). This action cannot be undone.
+                                </>
+                              ),
+                              confirmLabel: 'Delete',
+                              destructive: true,
+                            })
+                            if (!ok) {
+                              setFolderMenuOpen(null)
+                              return
+                            }
                             await removeFolder(folder.uuid)
                             if (viewFilter === folder.uuid) setViewFilter('all')
                             setFolderMenuOpen(null)
