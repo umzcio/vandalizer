@@ -31,7 +31,8 @@ import { getModels } from '../../api/config'
 import { searchDocuments, pollStatus as pollDocumentStatus } from '../../api/documents'
 import { convertDocumentsToKB } from '../../api/knowledge'
 import { listCredentials } from '../../api/credentials'
-import type { Credential } from '../../types/credential'
+import type { Credential, CredentialType } from '../../types/credential'
+import { CredentialQuickCreateModal } from './CredentialQuickCreateModal'
 import { uploadFile } from '../../api/files'
 import { listKnowledgeBases } from '../../api/knowledge'
 import { listAllFolders } from '../../api/folders'
@@ -1921,6 +1922,12 @@ function TaskEditModal({ task, selectedDocUuids, workflow, workflowId, onClose, 
 
   // Credentials (API Node auth_strategy picker)
   const [credentials, setCredentials] = useState<Credential[] | null>(null)
+  const [credentialModalOpen, setCredentialModalOpen] = useState(false)
+  const reloadCredentials = useCallback(() => {
+    return listCredentials()
+      .then(list => { setCredentials(list); return list })
+      .catch(() => { setCredentials([]); return [] as Credential[] })
+  }, [])
   useEffect(() => {
     if (task.name !== 'APINode') return
     let cancelled = false
@@ -2979,35 +2986,66 @@ function TaskEditModal({ task, selectedDocUuids, workflow, workflowId, onClose, 
                       width: 14, height: 14, color: '#9ca3af', pointerEvents: 'none',
                     }} />
                   </div>
-                  {getTextValue('auth_strategy') && getTextValue('auth_strategy') !== 'none' && (
-                    <div style={{ position: 'relative' }}>
-                      <select
-                        value={getTextValue('credential_id') || ''}
-                        onChange={e => setTextValue('credential_id', e.target.value)}
-                        style={{
-                          width: '100%', padding: '8px 12px', fontSize: 13, fontFamily: 'inherit',
-                          border: '1px solid #d1d5db', borderRadius: 6, backgroundColor: '#fff',
-                          color: '#374151', appearance: 'none', paddingRight: 32,
-                        }}
-                      >
-                        <option value="">Select a credential...</option>
-                        {(credentials || [])
-                          .filter(c => c.type === getTextValue('auth_strategy'))
-                          .map(c => (
-                            <option key={c.id} value={c.id}>{c.name}</option>
-                          ))}
-                      </select>
-                      <ChevronDown style={{
-                        position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)',
-                        width: 14, height: 14, color: '#9ca3af', pointerEvents: 'none',
-                      }} />
-                      {credentials && credentials.filter(c => c.type === getTextValue('auth_strategy')).length === 0 && (
-                        <p style={{ fontSize: 12, color: '#6b7280', marginTop: 6 }}>
-                          No matching credentials. Create one in Credentials.
-                        </p>
-                      )}
-                    </div>
-                  )}
+                  {getTextValue('auth_strategy') && getTextValue('auth_strategy') !== 'none' && (() => {
+                    const strategy = getTextValue('auth_strategy') as CredentialType
+                    const matching = (credentials || []).filter(c => c.type === strategy)
+                    return (
+                      <div>
+                        <div style={{ display: 'flex', gap: 8, alignItems: 'stretch' }}>
+                          <div style={{ position: 'relative', flex: 1 }}>
+                            <select
+                              value={getTextValue('credential_id') || ''}
+                              onChange={e => setTextValue('credential_id', e.target.value)}
+                              style={{
+                                width: '100%', padding: '8px 12px', fontSize: 13, fontFamily: 'inherit',
+                                border: '1px solid #d1d5db', borderRadius: 6, backgroundColor: '#fff',
+                                color: '#374151', appearance: 'none', paddingRight: 32,
+                              }}
+                            >
+                              <option value="">Select a credential...</option>
+                              {matching.map(c => (
+                                <option key={c.id} value={c.id}>{c.name}</option>
+                              ))}
+                            </select>
+                            <ChevronDown style={{
+                              position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)',
+                              width: 14, height: 14, color: '#9ca3af', pointerEvents: 'none',
+                            }} />
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setCredentialModalOpen(true)}
+                            title="Create a new credential for this API"
+                            style={{
+                              display: 'inline-flex', alignItems: 'center', gap: 4,
+                              padding: '0 12px', fontSize: 13, fontWeight: 500,
+                              border: '1px solid #d1d5db', borderRadius: 6,
+                              background: '#fff', color: '#374151', cursor: 'pointer',
+                              whiteSpace: 'nowrap',
+                            }}
+                          >
+                            <Plus style={{ width: 14, height: 14 }} />
+                            New
+                          </button>
+                        </div>
+                        {credentials && matching.length === 0 && (
+                          <p style={{ fontSize: 12, color: '#6b7280', marginTop: 6 }}>
+                            No matching credentials yet — click <strong>New</strong> to create one.
+                          </p>
+                        )}
+                      </div>
+                    )
+                  })()}
+                  <CredentialQuickCreateModal
+                    open={credentialModalOpen}
+                    initialType={(getTextValue('auth_strategy') as CredentialType) || 'static_header'}
+                    onClose={() => setCredentialModalOpen(false)}
+                    onCreated={async (cred) => {
+                      setCredentialModalOpen(false)
+                      await reloadCredentials()
+                      setTextValue('credential_id', cred.id)
+                    }}
+                  />
                 </div>
                 <div style={{ marginBottom: 16 }}>
                   <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 8 }}>
