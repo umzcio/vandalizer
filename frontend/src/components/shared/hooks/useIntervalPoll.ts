@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from 'react'
+import { useCallback, useEffect, useMemo, useRef } from 'react'
 
 interface StartOptions<T> {
   fetch: () => Promise<T>
@@ -43,5 +43,9 @@ export function useIntervalPoll<T>() {
 
   useEffect(() => () => stop(), [stop])
 
-  return { start, stop }
+  // Stable object so callers can list the hook's return value in effect/callback
+  // deps without triggering a render loop. Without useMemo, `{ start, stop }` is
+  // a fresh object every render, which silently invalidates any useCallback that
+  // depends on it.
+  return useMemo(() => ({ start, stop }), [start, stop])
 }

@@ -16,7 +16,7 @@ import { Loader2, Sparkles } from 'lucide-react'
 export interface QualityHistoryItem {
   uuid?: string
   score?: number
-  grade?: string
+  grade?: string | null
   created_at?: string
   num_test_queries?: number
   num_queries_judged?: number

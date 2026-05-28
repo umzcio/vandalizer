@@ -19,7 +19,6 @@ import { OptimizationHistoryPanel } from './OptimizationHistoryPanel'
 import { ErrorBanner, PastRunBanner } from '../shared/RunBanners'
 import { useIntervalPoll } from '../shared/hooks/useIntervalPoll'
 import { WhenToRunDisclosure } from '../shared/WhenToRunDisclosure'
-import { ApplyPreviewModal } from '../shared/ApplyPreviewModal'
 
 interface Props {
   kbUuid: string

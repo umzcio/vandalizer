@@ -23,6 +23,7 @@ export interface LiftCIInput {
   p_value: number       // permutation p-value, two-sided
   n_queries: number
   n_iterations: number
+  confidence_level?: number  // e.g. 0.95; falls back to 95% in the readout
 }
 
 interface QualityComparisonCardProps {

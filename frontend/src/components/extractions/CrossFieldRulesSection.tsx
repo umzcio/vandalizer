@@ -425,7 +425,7 @@ function RuleEditFields({
           <NumberInput
             label="Tolerance"
             value={draft.tolerance ?? 0.01}
-            onChange={v => update({ tolerance: v })}
+            onChange={v => update({ tolerance: v ?? undefined })}
             step={0.01}
           />
         </>
