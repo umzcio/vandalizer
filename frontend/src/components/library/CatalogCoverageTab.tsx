@@ -185,7 +185,7 @@ export function CatalogCoverageTab() {
                         className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded border border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
                       >
                         <Wrench className="h-3 w-3" />
-                        {it.official_baseline ? 'Update baseline' : 'Establish baseline'}
+                        {it.official_baseline_pinned_at ? 'Update baseline' : 'Establish baseline'}
                       </button>
                     </td>
                   </tr>
