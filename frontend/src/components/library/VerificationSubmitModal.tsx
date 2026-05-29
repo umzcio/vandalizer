@@ -271,7 +271,7 @@ export function VerificationSubmitModal({ itemKind, itemId, itemTitle, onClose, 
               <dl className="space-y-2 text-sm">
                 <div>
                   <dt className="text-xs font-medium text-gray-400 uppercase">Summary</dt>
-                  <dd className="text-gray-700">{summary || item.name}</dd>
+                  <dd className="text-gray-700">{summary || itemTitle}</dd>
                 </div>
                 {description && (
                   <div>
