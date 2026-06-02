@@ -302,6 +302,7 @@ export function ExtractionAutovalidatePanel({ searchSetUuid, canManage, onApplie
         status: t.status,
       })),
       cancel_requested: run.cancel_requested,
+      started_at: run.started_at,
     }
     return (
       <OptimizationProgressCard<Record<string, unknown>>

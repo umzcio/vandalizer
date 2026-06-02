@@ -1,4 +1,5 @@
-import { Loader2, X, Sparkles, Target } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { Loader2, X, Sparkles, Target, Clock } from 'lucide-react'
 import { ProgressRow } from './ProgressRow'
 import { scoreColor } from './TrialsTable'
 
@@ -15,6 +16,8 @@ export interface ProgressRunShape<TConfig> {
   best_config_so_far: TConfig | null
   trials: Array<{ trial_id: string; config: TConfig; score: number; status: string }>
   cancel_requested: boolean
+  /** Server-set start timestamp (ISO). Drives the live elapsed-time readout. */
+  started_at?: string | null
 }
 
 interface OptimizationProgressCardProps<TConfig> {
@@ -57,6 +60,12 @@ export function OptimizationProgressCard<TConfig>({
     ? (run.tokens_used / run.token_budget) * 100
     : 0
 
+  // Live elapsed time, anchored to the server-set started_at so it stays
+  // accurate across UI reloads and polling lag (unlike a client-side
+  // Date.now() captured when the panel happened to mount). Ticks once a
+  // second while the run is active.
+  const elapsedSeconds = useElapsedSeconds(run.started_at, run.status)
+
   return (
     <div style={{
       padding: 16, background: 'linear-gradient(135deg, #1a1f2e 0%, #1f1f1f 100%)',
@@ -68,8 +77,17 @@ export function OptimizationProgressCard<TConfig>({
         <span style={{ fontSize: 14, fontWeight: 600, color: '#fff' }}>
           {run.status === 'queued' ? queuedLabel : runningLabel}
         </span>
+        {elapsedSeconds != null && (
+          <span style={{
+            marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 4,
+            fontSize: 11, color: '#9ca3af', fontVariantNumeric: 'tabular-nums',
+          }}>
+            <Clock size={11} style={{ color: '#6b7280' }} />
+            {formatElapsed(elapsedSeconds)}
+          </span>
+        )}
         <span style={{
-          marginLeft: 'auto', fontSize: 10, fontWeight: 600,
+          marginLeft: elapsedSeconds != null ? 0 : 'auto', fontSize: 10, fontWeight: 600,
           padding: '2px 8px', borderRadius: 8,
           color: '#a78bfa', backgroundColor: 'rgba(124, 58, 237, 0.15)',
         }}>
@@ -221,4 +239,33 @@ function formatTokens(n: number) {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
   if (n >= 1_000) return `${(n / 1_000).toFixed(0)}k`
   return String(n)
+}
+
+function formatElapsed(seconds: number) {
+  if (seconds < 60) return `${seconds}s`
+  return `${Math.floor(seconds / 60)}m ${seconds % 60}s`
+}
+
+/**
+ * Seconds elapsed since `startedAt`, re-rendering once a second while the run
+ * is queued/running. Returns null when there's no start timestamp yet or the
+ * run is no longer active, so callers can omit the readout entirely.
+ */
+function useElapsedSeconds(startedAt: string | null | undefined, status: string): number | null {
+  const active = status === 'queued' || status === 'running'
+  const startMs = startedAt ? new Date(startedAt).getTime() : NaN
+  const [elapsed, setElapsed] = useState<number>(() =>
+    active && Number.isFinite(startMs) ? Math.max(0, Math.round((Date.now() - startMs) / 1000)) : 0,
+  )
+
+  useEffect(() => {
+    if (!active || !Number.isFinite(startMs)) return
+    const tick = () => setElapsed(Math.max(0, Math.round((Date.now() - startMs) / 1000)))
+    tick()
+    const id = setInterval(tick, 1000)
+    return () => clearInterval(id)
+  }, [active, startMs])
+
+  if (!active || !Number.isFinite(startMs)) return null
+  return elapsed
 }
