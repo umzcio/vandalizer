@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useLayoutEffect } from 'react'
 
 type TermKey =
   | 'judge'
@@ -67,6 +67,27 @@ export function TermDef({ term, children, theme = 'dark' }: TermDefProps) {
   const def = DEFINITIONS[term]
   const [open, setOpen] = useState(false)
   const wrapRef = useRef<HTMLSpanElement | null>(null)
+  const tipRef = useRef<HTMLSpanElement | null>(null)
+  // Horizontal shift (px) applied to keep the tooltip inside the viewport.
+  // Without it, a trigger near the right edge pushes the tooltip off-screen,
+  // which spawns a horizontal scrollbar the user can't reach without closing it.
+  const [shiftX, setShiftX] = useState(0)
+
+  useLayoutEffect(() => {
+    if (!open) {
+      setShiftX(0)
+      return
+    }
+    const tip = tipRef.current
+    if (!tip) return
+    const margin = 8
+    const vw = document.documentElement.clientWidth
+    const rect = tip.getBoundingClientRect()
+    let shift = 0
+    if (rect.right > vw - margin) shift = vw - margin - rect.right
+    if (rect.left + shift < margin) shift = margin - rect.left
+    setShiftX(shift)
+  }, [open])
 
   useEffect(() => {
     if (!open) return
@@ -117,12 +138,13 @@ export function TermDef({ term, children, theme = 'dark' }: TermDefProps) {
       </button>
       {open && (
         <span
+          ref={tipRef}
           role="tooltip"
           style={{
             position: 'absolute',
             zIndex: 1000,
             top: 'calc(100% + 6px)',
-            left: 0,
+            left: shiftX,
             minWidth: 240,
             maxWidth: 320,
             padding: '10px 12px',

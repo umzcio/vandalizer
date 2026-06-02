@@ -822,6 +822,7 @@ def _serialize_test_query(q) -> dict:
         "last_judged_score": q.last_judged_score,
         "last_judged_at": q.last_judged_at.isoformat() if q.last_judged_at else None,
         "created_at": q.created_at.isoformat() if q.created_at else None,
+        "updated_at": q.updated_at.isoformat() if getattr(q, "updated_at", None) else None,
     }
 
 
@@ -911,6 +912,50 @@ async def generate_test_queries(
         "created": len(created),
         "test_queries": [_serialize_test_query(q) for q in created],
     }
+
+
+@router.patch("/{uuid}/test-queries/{query_uuid}")
+async def update_test_query(
+    uuid: str, query_uuid: str, request: Request, user: User = Depends(get_current_user),
+):
+    """Edit a test query's user-authored fields.
+
+    Partial update: only keys present in the body are touched, so the caller
+    can send just the field(s) that changed. Judge metadata (scores, source
+    chunk ids, auto_generated) is server-owned and not editable here.
+    """
+    import datetime as _datetime
+
+    user_org_ancestry = await organization_service.get_user_org_ancestry(user)
+    kb = await svc.get_knowledge_base(
+        uuid, user, manage=True, user_org_ancestry=user_org_ancestry, allow_admin=True,
+    )
+    if not kb:
+        raise HTTPException(status_code=404, detail="Knowledge base not found")
+    from app.models.kb_test_query import KBTestQuery
+    tq = await KBTestQuery.find_one(
+        KBTestQuery.uuid == query_uuid,
+        KBTestQuery.knowledge_base_uuid == kb.uuid,
+    )
+    if not tq:
+        raise HTTPException(status_code=404, detail="Test query not found")
+    body = await request.json()
+    if "query" in body:
+        query = (body.get("query") or "").strip()
+        if not query:
+            raise HTTPException(status_code=400, detail="Query cannot be empty")
+        tq.query = query
+    if "expected_answer" in body:
+        tq.expected_answer = body.get("expected_answer") or None
+    if "expected_answer_contains" in body:
+        tq.expected_answer_contains = body.get("expected_answer_contains") or None
+    if "expected_source_labels" in body:
+        tq.expected_source_labels = body.get("expected_source_labels") or []
+    if "category" in body:
+        tq.category = body.get("category") or None
+    tq.updated_at = _datetime.datetime.now(tz=_datetime.timezone.utc)
+    await tq.save()
+    return _serialize_test_query(tq)
 
 
 @router.delete("/{uuid}/test-queries/{query_uuid}")

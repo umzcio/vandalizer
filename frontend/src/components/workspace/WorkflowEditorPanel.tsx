@@ -761,6 +761,7 @@ export function WorkflowEditorPanel() {
             itemTitle={workflow?.name}
             selectedDocUuids={selectedDocUuids}
             bumpActivitySignal={bumpActivitySignal}
+            canManage={canManage}
             onValidated={() => {
               refreshSparkline()
               if (openWorkflowId) getWorkflowQualityStatus(openWorkflowId).then(setQualityStatus).catch(() => {})
@@ -5240,12 +5241,14 @@ function ValidateTab({
   selectedDocUuids,
   bumpActivitySignal,
   onValidated,
+  canManage,
 }: {
   workflowId: string | null
   itemTitle?: string
   selectedDocUuids: string[]
   bumpActivitySignal: () => void
   onValidated?: () => void
+  canManage: boolean
 }) {
   // Plan state
   const [planChecks, setPlanChecks] = useState<ValidationCheckDefinition[]>([])
@@ -5508,11 +5511,13 @@ function ValidateTab({
 
   const handleDeleteExpectedOutput = async (expectedId: string) => {
     if (!workflowId) return
+    if (!window.confirm('Remove this expected output? Validation and tuning will no longer score against it.')) return
+    setError(null)
     try {
       await deleteExpectedOutput(workflowId, expectedId)
       await refreshExpectedOutputs()
-    } catch {
-      /* non-fatal */
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to remove expected output')
     }
   }
 
@@ -6044,13 +6049,15 @@ function ValidateTab({
                       </div>
                     )}
                   </div>
-                  <button
-                    onClick={() => handleDeleteExpectedOutput(eo.id)}
-                    style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, color: '#9ca3af', display: 'flex', flexShrink: 0 }}
-                    title="Remove expected output"
-                  >
-                    <Trash2 style={{ width: 13, height: 13 }} />
-                  </button>
+                  {canManage && (
+                    <button
+                      onClick={() => handleDeleteExpectedOutput(eo.id)}
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, color: '#9ca3af', display: 'flex', flexShrink: 0 }}
+                      title="Remove expected output"
+                    >
+                      <Trash2 style={{ width: 13, height: 13 }} />
+                    </button>
+                  )}
                 </div>
               ))}
             </div>

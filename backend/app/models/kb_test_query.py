@@ -26,6 +26,9 @@ class KBTestQuery(Document):
     created_at: datetime.datetime = Field(
         default_factory=lambda: datetime.datetime.now(tz=datetime.timezone.utc)
     )
+    # Set when a user edits the query/expected answer after creation; None for
+    # records that have never been edited.
+    updated_at: Optional[datetime.datetime] = None
 
     class Settings:
         name = "kb_test_queries"

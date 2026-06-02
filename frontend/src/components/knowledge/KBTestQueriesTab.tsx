@@ -1,7 +1,8 @@
 import { useState } from 'react'
-import { Plus, Sparkles, Trash2, Bot, User, Loader2 } from 'lucide-react'
+import { Plus, Sparkles, Trash2, Bot, User, Loader2, Pencil } from 'lucide-react'
 import {
   createKBTestQuery,
+  updateKBTestQuery,
   deleteKBTestQuery,
   generateKBTestQueries,
   type KBTestQuery,
@@ -16,17 +17,33 @@ interface Props {
   onChange: () => void
 }
 
+type DraftShape = {
+  query: string
+  expected_answer: string
+  expected_source_labels: string
+  category: string
+}
+
+const EMPTY_DRAFT: DraftShape = {
+  query: '',
+  expected_answer: '',
+  expected_source_labels: '',
+  category: 'factual',
+}
+
+const CATEGORIES = ['factual', 'summary', 'enumeration', 'boundary']
+
 export function KBTestQueriesTab({ kbUuid, kbReady, canManage, queries, onChange }: Props) {
   const [showGen, setShowGen] = useState(false)
   const [showAdd, setShowAdd] = useState(false)
   const [adding, setAdding] = useState(false)
   const [generating, setGenerating] = useState(false)
-  const [draft, setDraft] = useState({
-    query: '',
-    expected_answer: '',
-    expected_source_labels: '',
-    category: 'factual',
-  })
+  const [draft, setDraft] = useState<DraftShape>(EMPTY_DRAFT)
+  // When set, the matching query card renders an inline edit form instead of
+  // its read-only view. `editDraft` holds the in-progress edits.
+  const [editingUuid, setEditingUuid] = useState<string | null>(null)
+  const [editDraft, setEditDraft] = useState<DraftShape>(EMPTY_DRAFT)
+  const [saving, setSaving] = useState(false)
 
   const handleAdd = async () => {
     if (!draft.query.trim()) return
@@ -39,11 +56,40 @@ export function KBTestQueriesTab({ kbUuid, kbReady, canManage, queries, onChange
           .split(',').map(s => s.trim()).filter(Boolean),
         category: draft.category,
       })
-      setDraft({ query: '', expected_answer: '', expected_source_labels: '', category: 'factual' })
+      setDraft(EMPTY_DRAFT)
       setShowAdd(false)
       await onChange()
     } finally {
       setAdding(false)
+    }
+  }
+
+  const startEdit = (q: KBTestQuery) => {
+    setShowAdd(false)
+    setEditingUuid(q.uuid)
+    setEditDraft({
+      query: q.query,
+      expected_answer: q.expected_answer ?? '',
+      expected_source_labels: q.expected_source_labels.join(', '),
+      category: q.category ?? 'factual',
+    })
+  }
+
+  const handleUpdate = async () => {
+    if (!editingUuid || !editDraft.query.trim()) return
+    setSaving(true)
+    try {
+      await updateKBTestQuery(kbUuid, editingUuid, {
+        query: editDraft.query.trim(),
+        expected_answer: editDraft.expected_answer.trim() || null,
+        expected_source_labels: editDraft.expected_source_labels
+          .split(',').map(s => s.trim()).filter(Boolean),
+        category: editDraft.category,
+      })
+      setEditingUuid(null)
+      await onChange()
+    } finally {
+      setSaving(false)
     }
   }
 
@@ -101,34 +147,7 @@ export function KBTestQueriesTab({ kbUuid, kbReady, canManage, queries, onChange
           backgroundColor: '#252525', border: '1px solid #333', borderRadius: 6,
           display: 'flex', flexDirection: 'column', gap: 8,
         }}>
-          <input
-            placeholder="Query…"
-            value={draft.query}
-            onChange={e => setDraft({ ...draft, query: e.target.value })}
-            style={input()}
-          />
-          <textarea
-            placeholder="Expected answer (the canonical correct answer the LLM judge will compare against)"
-            value={draft.expected_answer}
-            onChange={e => setDraft({ ...draft, expected_answer: e.target.value })}
-            style={{ ...input(), minHeight: 60, resize: 'vertical' as const }}
-          />
-          <input
-            placeholder="Expected source labels (comma-separated, optional)"
-            value={draft.expected_source_labels}
-            onChange={e => setDraft({ ...draft, expected_source_labels: e.target.value })}
-            style={input()}
-          />
-          <select
-            value={draft.category}
-            onChange={e => setDraft({ ...draft, category: e.target.value })}
-            style={input()}
-          >
-            <option value="factual">factual</option>
-            <option value="summary">summary</option>
-            <option value="enumeration">enumeration</option>
-            <option value="boundary">boundary</option>
-          </select>
+          <QueryFormFields draft={draft} onChange={setDraft} />
           <div style={{ display: 'flex', gap: 8 }}>
             <button onClick={handleAdd} disabled={adding || !draft.query.trim()} style={btn(!adding && !!draft.query.trim(), '#15803d')}>
               {adding ? 'Adding…' : 'Save'}
@@ -153,41 +172,62 @@ export function KBTestQueriesTab({ kbUuid, kbReady, canManage, queries, onChange
                 border: '1px solid #333', borderRadius: 6,
               }}
             >
-              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-                {q.auto_generated ? (
-                  <Bot size={13} style={{ color: '#7c3aed', flexShrink: 0, marginTop: 2 }} />
-                ) : (
-                  <User size={13} style={{ color: '#888', flexShrink: 0, marginTop: 2 }} />
-                )}
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 12, color: '#e5e5e5', marginBottom: 4 }}>{q.query}</div>
-                  {q.expected_answer && (
-                    <div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>
-                      <span style={{ color: '#666' }}>Expected: </span>{q.expected_answer}
-                    </div>
-                  )}
-                  <div style={{ display: 'flex', gap: 8, fontSize: 10, color: '#666', marginTop: 4, flexWrap: 'wrap' }}>
-                    {q.category && <span>· {q.category}</span>}
-                    {q.expected_source_labels.length > 0 && (
-                      <span>· sources: {q.expected_source_labels.join(', ')}</span>
-                    )}
-                    {q.last_judged_score != null && (
-                      <span style={{ color: scoreColor(q.last_judged_score) }}>
-                        · last score: {(q.last_judged_score * 100).toFixed(0)}%
-                      </span>
-                    )}
+              {editingUuid === q.uuid ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <QueryFormFields draft={editDraft} onChange={setEditDraft} />
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button onClick={handleUpdate} disabled={saving || !editDraft.query.trim()} style={btn(!saving && !!editDraft.query.trim(), '#15803d')}>
+                      {saving ? 'Saving…' : 'Save'}
+                    </button>
+                    <button onClick={() => setEditingUuid(null)} style={btn(true)}>Cancel</button>
                   </div>
                 </div>
-                {canManage && (
-                  <button
-                    onClick={() => handleDelete(q)}
-                    style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: 2, color: '#666' }}
-                    title="Delete"
-                  >
-                    <Trash2 size={12} />
-                  </button>
-                )}
-              </div>
+              ) : (
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                  {q.auto_generated ? (
+                    <Bot size={13} style={{ color: '#7c3aed', flexShrink: 0, marginTop: 2 }} />
+                  ) : (
+                    <User size={13} style={{ color: '#888', flexShrink: 0, marginTop: 2 }} />
+                  )}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 12, color: '#e5e5e5', marginBottom: 4 }}>{q.query}</div>
+                    {q.expected_answer && (
+                      <div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>
+                        <span style={{ color: '#666' }}>Expected: </span>{q.expected_answer}
+                      </div>
+                    )}
+                    <div style={{ display: 'flex', gap: 8, fontSize: 10, color: '#666', marginTop: 4, flexWrap: 'wrap' }}>
+                      {q.category && <span>· {q.category}</span>}
+                      {q.expected_source_labels.length > 0 && (
+                        <span>· sources: {q.expected_source_labels.join(', ')}</span>
+                      )}
+                      {q.last_judged_score != null && (
+                        <span style={{ color: scoreColor(q.last_judged_score) }}>
+                          · last score: {(q.last_judged_score * 100).toFixed(0)}%
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  {canManage && (
+                    <div style={{ display: 'flex', gap: 2, flexShrink: 0 }}>
+                      <button
+                        onClick={() => startEdit(q)}
+                        style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: 2, color: '#666' }}
+                        title="Edit"
+                      >
+                        <Pencil size={12} />
+                      </button>
+                      <button
+                        onClick={() => handleDelete(q)}
+                        style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: 2, color: '#666' }}
+                        title="Delete"
+                      >
+                        <Trash2 size={12} />
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -200,6 +240,47 @@ export function KBTestQueriesTab({ kbUuid, kbReady, canManage, queries, onChange
         />
       )}
     </div>
+  )
+}
+
+/** Shared query/expected-answer/labels/category fields used by both the
+ * "add" form and a card's inline "edit" form. */
+function QueryFormFields({ draft, onChange }: { draft: DraftShape; onChange: (d: DraftShape) => void }) {
+  // Preserve an unusual category (e.g. from an auto-generated query) by
+  // surfacing it as an extra option rather than silently dropping it.
+  const categories = CATEGORIES.includes(draft.category)
+    ? CATEGORIES
+    : [draft.category, ...CATEGORIES]
+  return (
+    <>
+      <input
+        placeholder="Query…"
+        value={draft.query}
+        onChange={e => onChange({ ...draft, query: e.target.value })}
+        style={input()}
+      />
+      <textarea
+        placeholder="Expected answer (the canonical correct answer the LLM judge will compare against)"
+        value={draft.expected_answer}
+        onChange={e => onChange({ ...draft, expected_answer: e.target.value })}
+        style={{ ...input(), minHeight: 60, resize: 'vertical' as const }}
+      />
+      <input
+        placeholder="Expected source labels (comma-separated, optional)"
+        value={draft.expected_source_labels}
+        onChange={e => onChange({ ...draft, expected_source_labels: e.target.value })}
+        style={input()}
+      />
+      <select
+        value={draft.category}
+        onChange={e => onChange({ ...draft, category: e.target.value })}
+        style={input()}
+      >
+        {categories.map(c => (
+          <option key={c} value={c}>{c}</option>
+        ))}
+      </select>
+    </>
   )
 }
 

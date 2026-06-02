@@ -304,6 +304,7 @@ export type KBTestQuery = {
   last_judged_score: number | null
   last_judged_at: string | null
   created_at: string | null
+  updated_at: string | null
 }
 
 export function listKBTestQueries(uuid: string) {
@@ -321,6 +322,19 @@ export function createKBTestQuery(uuid: string, data: {
 }) {
   return apiFetch<KBTestQuery>(`/api/knowledge/${uuid}/test-queries`, {
     method: 'POST',
+    body: JSON.stringify(data),
+  })
+}
+
+export function updateKBTestQuery(uuid: string, queryUuid: string, data: {
+  query?: string
+  expected_source_labels?: string[]
+  expected_answer_contains?: string | null
+  expected_answer?: string | null
+  category?: string | null
+}) {
+  return apiFetch<KBTestQuery>(`/api/knowledge/${uuid}/test-queries/${queryUuid}`, {
+    method: 'PATCH',
     body: JSON.stringify(data),
   })
 }
