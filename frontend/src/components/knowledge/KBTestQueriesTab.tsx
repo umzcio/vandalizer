@@ -17,14 +17,14 @@ interface Props {
   onChange: () => void
 }
 
-type DraftShape = {
+export type DraftShape = {
   query: string
   expected_answer: string
   expected_source_labels: string
   category: string
 }
 
-const EMPTY_DRAFT: DraftShape = {
+export const EMPTY_DRAFT: DraftShape = {
   query: '',
   expected_answer: '',
   expected_source_labels: '',
@@ -32,6 +32,29 @@ const EMPTY_DRAFT: DraftShape = {
 }
 
 const CATEGORIES = ['factual', 'summary', 'enumeration', 'boundary']
+
+/** Convert a saved query into the editable draft shape (comma-joined labels,
+ * nulls coerced to empty strings). Single-sourced so the Test Queries tab and
+ * the Autovalidate wizard preview edit queries identically. */
+export function queryToDraft(q: KBTestQuery): DraftShape {
+  return {
+    query: q.query,
+    expected_answer: q.expected_answer ?? '',
+    expected_source_labels: q.expected_source_labels.join(', '),
+    category: q.category ?? 'factual',
+  }
+}
+
+/** Convert an editable draft back into a PATCH payload for updateKBTestQuery. */
+export function draftToUpdatePayload(draft: DraftShape) {
+  return {
+    query: draft.query.trim(),
+    expected_answer: draft.expected_answer.trim() || null,
+    expected_source_labels: draft.expected_source_labels
+      .split(',').map(s => s.trim()).filter(Boolean),
+    category: draft.category,
+  }
+}
 
 export function KBTestQueriesTab({ kbUuid, kbReady, canManage, queries, onChange }: Props) {
   const [showGen, setShowGen] = useState(false)
@@ -67,25 +90,14 @@ export function KBTestQueriesTab({ kbUuid, kbReady, canManage, queries, onChange
   const startEdit = (q: KBTestQuery) => {
     setShowAdd(false)
     setEditingUuid(q.uuid)
-    setEditDraft({
-      query: q.query,
-      expected_answer: q.expected_answer ?? '',
-      expected_source_labels: q.expected_source_labels.join(', '),
-      category: q.category ?? 'factual',
-    })
+    setEditDraft(queryToDraft(q))
   }
 
   const handleUpdate = async () => {
     if (!editingUuid || !editDraft.query.trim()) return
     setSaving(true)
     try {
-      await updateKBTestQuery(kbUuid, editingUuid, {
-        query: editDraft.query.trim(),
-        expected_answer: editDraft.expected_answer.trim() || null,
-        expected_source_labels: editDraft.expected_source_labels
-          .split(',').map(s => s.trim()).filter(Boolean),
-        category: editDraft.category,
-      })
+      await updateKBTestQuery(kbUuid, editingUuid, draftToUpdatePayload(editDraft))
       setEditingUuid(null)
       await onChange()
     } finally {
@@ -245,7 +257,7 @@ export function KBTestQueriesTab({ kbUuid, kbReady, canManage, queries, onChange
 
 /** Shared query/expected-answer/labels/category fields used by both the
  * "add" form and a card's inline "edit" form. */
-function QueryFormFields({ draft, onChange }: { draft: DraftShape; onChange: (d: DraftShape) => void }) {
+export function QueryFormFields({ draft, onChange }: { draft: DraftShape; onChange: (d: DraftShape) => void }) {
   // Preserve an unusual category (e.g. from an auto-generated query) by
   // surfacing it as an extra option rather than silently dropping it.
   const categories = CATEGORIES.includes(draft.category)

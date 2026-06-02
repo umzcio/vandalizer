@@ -1,13 +1,23 @@
 import { useEffect, useState } from 'react'
+import { Pencil, Trash2 } from 'lucide-react'
 import {
   formatBudgetEstimate,
   generateKBTestQueries,
   getKBBaselineProbe,
   listKBTestQueries,
+  updateKBTestQuery,
+  deleteKBTestQuery,
   type KBTestQuery,
   type StartOptimizationOptions,
   type OptimizationCoverage,
 } from '../../api/knowledge'
+import {
+  QueryFormFields,
+  queryToDraft,
+  draftToUpdatePayload,
+  EMPTY_DRAFT,
+  type DraftShape,
+} from './KBTestQueriesTab'
 import { getUserConfig } from '../../api/config'
 import type { ModelInfo } from '../../types/workflow'
 import { Toggle, Radio } from '../shared/Toggle'
@@ -339,6 +349,48 @@ function PreviewStep({
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [attempt, setAttempt] = useState(0)
+  // Inline edit state for fixing a generated/saved question without leaving the
+  // wizard. `editingUuid` selects which card shows the edit form.
+  const [editingUuid, setEditingUuid] = useState<string | null>(null)
+  const [editDraft, setEditDraft] = useState<DraftShape>(EMPTY_DRAFT)
+  const [saving, setSaving] = useState(false)
+  const [actionError, setActionError] = useState<string | null>(null)
+
+  const startEdit = (q: KBTestQuery) => {
+    setActionError(null)
+    setEditingUuid(q.uuid)
+    setEditDraft(queryToDraft(q))
+  }
+
+  const handleUpdate = async () => {
+    if (!editingUuid || !editDraft.query.trim()) return
+    setSaving(true)
+    setActionError(null)
+    try {
+      const updated = await updateKBTestQuery(kbUuid, editingUuid, draftToUpdatePayload(editDraft))
+      setQueries(qs => qs.map(q => (q.uuid === updated.uuid ? updated : q)))
+      setEditingUuid(null)
+    } catch (e) {
+      setActionError((e as Error).message || 'Failed to save changes.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleDelete = async (q: KBTestQuery) => {
+    if (!window.confirm(`Remove this test question?\n\n"${q.query}"`)) return
+    setActionError(null)
+    try {
+      await deleteKBTestQuery(kbUuid, q.uuid)
+      const next = queries.filter(x => x.uuid !== q.uuid)
+      setQueries(next)
+      if (editingUuid === q.uuid) setEditingUuid(null)
+      // Keep downstream steps (baseline probe, tuning) scoped to the surviving set.
+      onReady(next.map(x => x.uuid))
+    } catch (e) {
+      setActionError((e as Error).message || 'Failed to remove question.')
+    }
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -393,9 +445,6 @@ function PreviewStep({
     )
   }
 
-  const visible = queries.slice(0, 8)
-  const hidden = Math.max(0, queries.length - visible.length)
-
   return (
     <div style={{ fontSize: 13, color: '#ccc', lineHeight: 1.5 }}>
       <h4 style={{ margin: '0 0 8px 0', fontSize: 13, color: '#fff' }}>
@@ -405,37 +454,87 @@ function PreviewStep({
         {mode === 'existing' ? (
           <>We'll grade each tuning trial against these <b>{queries.length}</b> questions using a <TermDef term="judge">judge</TermDef>.</>
         ) : (
-          <>Tuning quality depends on these. Take a moment to scan them — if any look off, edit them on the Test Queries tab before continuing.</>
+          <>Tuning quality depends on these. Scan them and fix anything that looks off — edit or remove a question right here before continuing.</>
         )}
       </p>
+      {actionError && (
+        <div style={{ margin: '0 0 8px 0', fontSize: 11, color: '#f87171' }}>{actionError}</div>
+      )}
       <div style={{
         display: 'flex', flexDirection: 'column', gap: 6,
-        maxHeight: 220, overflowY: 'auto',
+        maxHeight: 260, overflowY: 'auto',
         padding: 8, backgroundColor: '#181818', border: '1px solid #2a2a2a', borderRadius: 6,
       }}>
-        {visible.map((q, i) => (
+        {queries.map((q, i) => (
           <div key={q.uuid} style={{
             padding: '6px 8px', backgroundColor: '#262626', borderRadius: 4,
             fontSize: 12, color: '#e5e5e5',
           }}>
-            <div style={{ display: 'flex', gap: 6, alignItems: 'baseline' }}>
-              <span style={{ color: '#666', fontSize: 11 }}>{i + 1}.</span>
-              <span style={{ flex: 1 }}>{q.query}</span>
-            </div>
-            {q.expected_answer && (
-              <div style={{
-                marginTop: 3, fontSize: 11, color: '#888',
-                overflow: 'hidden', textOverflow: 'ellipsis',
-                display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
-              }}>
-                expected: {q.expected_answer}
+            {editingUuid === q.uuid ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <QueryFormFields draft={editDraft} onChange={setEditDraft} />
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button
+                    onClick={handleUpdate}
+                    disabled={saving || !editDraft.query.trim()}
+                    style={{
+                      fontSize: 11, fontFamily: 'inherit', padding: '4px 10px', borderRadius: 5,
+                      border: '1px solid #15803d55', backgroundColor: '#15803d1a',
+                      color: saving || !editDraft.query.trim() ? '#555' : '#e5e5e5',
+                      cursor: saving || !editDraft.query.trim() ? 'not-allowed' : 'pointer',
+                    }}
+                  >
+                    {saving ? 'Saving…' : 'Save'}
+                  </button>
+                  <button
+                    onClick={() => setEditingUuid(null)}
+                    style={{
+                      fontSize: 11, fontFamily: 'inherit', padding: '4px 10px', borderRadius: 5,
+                      border: '1px solid #3a3a3a', backgroundColor: '#2a2a2a', color: '#e5e5e5', cursor: 'pointer',
+                    }}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', gap: 6, alignItems: 'flex-start' }}>
+                <span style={{ color: '#666', fontSize: 11, marginTop: 1 }}>{i + 1}.</span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div>{q.query}</div>
+                  {q.expected_answer && (
+                    <div style={{
+                      marginTop: 3, fontSize: 11, color: '#888',
+                      overflow: 'hidden', textOverflow: 'ellipsis',
+                      display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
+                    }}>
+                      expected: {q.expected_answer}
+                    </div>
+                  )}
+                </div>
+                <div style={{ display: 'flex', gap: 2, flexShrink: 0 }}>
+                  <button
+                    onClick={() => startEdit(q)}
+                    style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: 2, color: '#888' }}
+                    title="Edit question"
+                  >
+                    <Pencil size={12} />
+                  </button>
+                  <button
+                    onClick={() => handleDelete(q)}
+                    style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: 2, color: '#888' }}
+                    title="Remove question"
+                  >
+                    <Trash2 size={12} />
+                  </button>
+                </div>
               </div>
             )}
           </div>
         ))}
-        {hidden > 0 && (
+        {queries.length === 0 && (
           <div style={{ fontSize: 11, color: '#666', padding: '4px 8px' }}>
-            …and {hidden} more
+            No test questions left. Add some on the Test Queries tab before tuning.
           </div>
         )}
       </div>
@@ -449,7 +548,7 @@ function PreviewStep({
             textDecoration: 'underline dotted', textUnderlineOffset: 2,
           }}
         >
-          Edit on Test Queries tab →
+          Open the full Test Queries tab →
         </button>
       )}
     </div>
