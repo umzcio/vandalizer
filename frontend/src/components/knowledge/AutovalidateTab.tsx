@@ -4,6 +4,7 @@ import {
   startKBOptimization,
   getActiveKBOptimization,
   getKBOptimization,
+  listKBOptimizationHistory,
   cancelKBOptimization,
   applyKBOptimization,
   revertKBOptimization,
@@ -61,6 +62,13 @@ export function AutovalidateTab({ kbUuid, kbReady, canManage, queriesCount, onSw
   }, [kbUuid, poll])
 
   // Initial load: see if there's an active or recent run.
+  //
+  // This tab unmounts when the user switches to another validation tab and
+  // remounts on return, so local `run` state alone can't survive a tab switch
+  // (or a page reload). We restore from the server here: first any in-flight
+  // run, and failing that the most recent completed/failed/cancelled run — so
+  // a finished tuning result keeps showing instead of dropping back to the
+  // "Start tuning" idle hero.
   useEffect(() => {
     let cancelled = false
     setLoading(true)
@@ -73,6 +81,18 @@ export function AutovalidateTab({ kbUuid, kbReady, canManage, queriesCount, onSw
           if (out.run.status === 'queued' || out.run.status === 'running') {
             startPolling(out.run.uuid)
           }
+          return
+        }
+        // No active run — fall back to the latest run from history so a
+        // completed result persists across tab switches and reloads. History
+        // summaries omit per-trial detail, so fetch the full run to render.
+        const history = await listKBOptimizationHistory(kbUuid, { limit: 1 })
+        if (cancelled) return
+        const latest = history.items[0]
+        if (latest) {
+          const full = await getKBOptimization(kbUuid, latest.uuid)
+          if (cancelled) return
+          setRun(full)
         }
       } catch (e) {
         if (!cancelled) console.error('getActiveKBOptimization failed', e)
