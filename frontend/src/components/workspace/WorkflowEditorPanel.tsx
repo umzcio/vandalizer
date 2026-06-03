@@ -2976,6 +2976,10 @@ function TaskEditModal({ task, selectedDocUuids, workflow, workflowId, onClose, 
                       outline: 'none', boxSizing: 'border-box',
                     }}
                   />
+                  <p style={{ fontSize: 12, color: '#6b7280', marginTop: 6, lineHeight: 1.5 }}>
+                    Insert the previous step's output with <code style={{ fontFamily: 'monospace', background: '#f3f4f6', padding: '1px 4px', borderRadius: 4 }}>{'{{ inputs.output }}'}</code> — e.g.
+                    {' '}<code style={{ fontFamily: 'monospace', background: '#f3f4f6', padding: '1px 4px', borderRadius: 4 }}>{'.../records/{{ inputs.output.id }}'}</code>. Works in URL, Headers, and Request Body.
+                  </p>
                 </div>
                 <div style={{ marginBottom: 16 }}>
                   <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 8 }}>
@@ -2994,6 +2998,7 @@ function TaskEditModal({ task, selectedDocUuids, workflow, workflowId, onClose, 
                       <option value="GET">GET</option>
                       <option value="POST">POST</option>
                       <option value="PUT">PUT</option>
+                      <option value="PATCH">PATCH</option>
                       <option value="DELETE">DELETE</option>
                     </select>
                     <ChevronDown style={{
@@ -3116,7 +3121,7 @@ function TaskEditModal({ task, selectedDocUuids, workflow, workflowId, onClose, 
                   <textarea
                     value={getTextValue('body')}
                     onChange={e => setTextValue('body', e.target.value)}
-                    placeholder={'{"key": "value"}'}
+                    placeholder={'{"records": {{ inputs.output }}}'}
                     rows={4}
                     style={{
                       width: '100%', padding: '10px 12px', fontSize: 13,
@@ -3124,6 +3129,11 @@ function TaskEditModal({ task, selectedDocUuids, workflow, workflowId, onClose, 
                       outline: 'none', resize: 'vertical', boxSizing: 'border-box', lineHeight: 1.5,
                     }}
                   />
+                  <p style={{ fontSize: 12, color: '#6b7280', marginTop: 6, lineHeight: 1.5 }}>
+                    Wrap the previous step's output with <code style={{ fontFamily: 'monospace', background: '#f3f4f6', padding: '1px 4px', borderRadius: 4 }}>{'{{ inputs.output }}'}</code> — it's inserted as JSON, so
+                    {' '}<code style={{ fontFamily: 'monospace', background: '#f3f4f6', padding: '1px 4px', borderRadius: 4 }}>{'{"records": {{ inputs.output }}}'}</code> stays valid. Don't add your own quotes around it.
+                    {' '}Leave this blank on a POST/PUT/PATCH and the upstream output is sent as the body automatically.
+                  </p>
                 </div>
               </div>
             )}

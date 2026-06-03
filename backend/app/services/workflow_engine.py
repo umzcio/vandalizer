@@ -754,12 +754,25 @@ class APICallNode(Node):
         self.data = data
 
     def process(self, inputs):
-        url = self.data.get("url", "")
+        from app.utils import templating
+
         method = self.data.get("method", "GET").upper()
-        headers_raw = self.data.get("headers", "")
-        body_raw = self.data.get("body", "")
         auth_strategy = (self.data.get("auth_strategy") or "none").lower()
         credential_id = self.data.get("credential_id") or ""
+
+        # Resolve {{ inputs.output }}-style placeholders against the previous
+        # step's output so authors can reference upstream data instead of
+        # pasting it in literally. URL and headers use raw-string substitution
+        # (they sit inside already-quoted positions); the body is rendered
+        # below with JSON-encoding semantics.
+        try:
+            url = templating.render(self.data.get("url", ""), inputs, json_encode=False)
+            headers_raw = templating.render(
+                self.data.get("headers", ""), inputs, json_encode=False
+            )
+        except templating.TemplateError as e:
+            return {"output": str(e), "input": inputs.get("output"), "step_name": self.name}
+        body_raw = self.data.get("body", "")
         if not url:
             return {"output": "", "input": inputs.get("output"), "step_name": self.name}
 
@@ -840,11 +853,34 @@ class APICallNode(Node):
                 }
 
         body = None
-        if body_raw and method in ("POST", "PUT", "PATCH"):
-            try:
-                body = json.loads(body_raw)
-            except json.JSONDecodeError:
-                body = body_raw
+        if method in ("POST", "PUT", "PATCH"):
+            if body_raw and body_raw.strip():
+                # Render {{ inputs.output }} placeholders with JSON-encoding so
+                # an envelope like {"records": {{ inputs.output }}} stays valid
+                # JSON whatever the upstream output's type is.
+                try:
+                    rendered_body = templating.render(body_raw, inputs, json_encode=True)
+                except templating.TemplateError as e:
+                    return {
+                        "output": str(e),
+                        "input": inputs.get("output"),
+                        "step_name": self.name,
+                    }
+                try:
+                    body = json.loads(rendered_body)
+                except json.JSONDecodeError:
+                    body = rendered_body
+            else:
+                # Implicit passthrough: an empty body on a write request sends
+                # the previous step's output as-is. This is what lets a
+                # [generate] -> [POST] workflow store its result without the
+                # author wiring up a template at all.
+                upstream = inputs.get("output")
+                if isinstance(upstream, (dict, list, str)):
+                    body = upstream
+                elif upstream is not None:
+                    # Scalars (number/bool) — send a JSON literal as the body.
+                    body = json.dumps(upstream)
 
         try:
             with httpx.Client(timeout=30, follow_redirects=True) as client:

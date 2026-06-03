@@ -703,6 +703,82 @@ class TestAPICallNode:
         call_kwargs = mock_client.request.call_args[1]
         assert call_kwargs["content"] == "plain text body"
 
+    @staticmethod
+    def _ok_client(mock_client_cls, json_return=None):
+        """Wire a MagicMock httpx.Client that returns a 200 JSON response."""
+        mock_response = MagicMock()
+        mock_response.json.return_value = json_return if json_return is not None else {"ok": True}
+        mock_response.raise_for_status = MagicMock()
+        mock_client = MagicMock()
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
+        mock_client.request.return_value = mock_response
+        mock_client_cls.return_value = mock_client
+        return mock_client
+
+    @patch("app.utils.url_validation.validate_outbound_url", return_value="ok")
+    @patch("app.services.workflow_engine.httpx.Client")
+    def test_body_template_wraps_upstream_output(self, mock_client_cls, _mock_validate):
+        mock_client = self._ok_client(mock_client_cls)
+        node = APICallNode({
+            "url": "https://api.example.com/create",
+            "method": "POST",
+            "body": '{"records": {{ inputs.output }}}',
+        })
+        node.process({"output": [{"id": 1}, {"id": 2}]})
+        assert mock_client.request.call_args[1]["json"] == {"records": [{"id": 1}, {"id": 2}]}
+
+    @patch("app.utils.url_validation.validate_outbound_url", return_value="ok")
+    @patch("app.services.workflow_engine.httpx.Client")
+    def test_body_template_unknown_variable_errors(self, mock_client_cls, _mock_validate):
+        node = APICallNode({
+            "url": "https://api.example.com/create",
+            "method": "POST",
+            "body": '{"x": {{ inputs.output.missing }}}',
+        })
+        result = node.process({"output": {"present": 1}})
+        assert "could not be resolved" in result["output"]
+        mock_client_cls.assert_not_called()
+
+    @patch("app.utils.url_validation.validate_outbound_url", return_value="ok")
+    @patch("app.services.workflow_engine.httpx.Client")
+    def test_empty_body_passthrough_dict(self, mock_client_cls, _mock_validate):
+        mock_client = self._ok_client(mock_client_cls)
+        node = APICallNode({"url": "https://api.example.com/store", "method": "POST"})
+        node.process({"output": {"id": 1, "value": "x"}})
+        assert mock_client.request.call_args[1]["json"] == {"id": 1, "value": "x"}
+
+    @patch("app.utils.url_validation.validate_outbound_url", return_value="ok")
+    @patch("app.services.workflow_engine.httpx.Client")
+    def test_empty_body_passthrough_string_as_content(self, mock_client_cls, _mock_validate):
+        mock_client = self._ok_client(mock_client_cls)
+        node = APICallNode({"url": "https://api.example.com/store", "method": "PUT"})
+        node.process({"output": "raw text result"})
+        call_kwargs = mock_client.request.call_args[1]
+        assert call_kwargs["content"] == "raw text result"
+        assert call_kwargs["json"] is None
+
+    @patch("app.utils.url_validation.validate_outbound_url", return_value="ok")
+    @patch("app.services.workflow_engine.httpx.Client")
+    def test_get_with_empty_body_has_no_passthrough(self, mock_client_cls, _mock_validate):
+        mock_client = self._ok_client(mock_client_cls)
+        node = APICallNode({"url": "https://api.example.com", "method": "GET"})
+        node.process({"output": {"id": 1}})
+        call_kwargs = mock_client.request.call_args[1]
+        assert call_kwargs["json"] is None
+        assert call_kwargs["content"] is None
+
+    @patch("app.utils.url_validation.validate_outbound_url", return_value="ok")
+    @patch("app.services.workflow_engine.httpx.Client")
+    def test_url_template_interpolates_upstream_id(self, mock_client_cls, _mock_validate):
+        mock_client = self._ok_client(mock_client_cls)
+        node = APICallNode({
+            "url": "https://api.example.com/records/{{ inputs.output.id }}",
+            "method": "GET",
+        })
+        node.process({"output": {"id": "abc123"}})
+        assert mock_client.request.call_args[0] == ("GET", "https://api.example.com/records/abc123")
+
     @patch("app.utils.url_validation.validate_outbound_url")
     @patch("app.services.workflow_engine.httpx.Client")
     def test_get_ignores_body(self, mock_client_cls, mock_validate):
