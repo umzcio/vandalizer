@@ -16,6 +16,7 @@ const KIND_LABEL: Record<string, string> = {
 }
 import { cloneToPersonal, shareToTeam, addItem as addItemToLibrary, touchItem, listCollections } from '../../api/library'
 import { ApiError } from '../../api/client'
+import { MAX_NAME_LENGTH, getNameError, normalizeName } from '../../utils/nameValidation'
 import { createWorkflow, importWorkflow } from '../../api/workflows'
 import { createSearchSet, importSearchSet, listItems as listSearchSetItems, updateSearchSet, updateItem as updateSearchSetItem, addItem as addSearchSetItem } from '../../api/extractions'
 import {
@@ -362,19 +363,25 @@ export function LibraryTab() {
 
   const handleEditSave = async () => {
     if (!editingItem?.item_uuid) return
+    const titleError = getNameError(editTitle, 'Title')
+    if (titleError) {
+      setEditError(titleError)
+      return
+    }
+    const cleanTitle = normalizeName(editTitle)
     setEditSaving(true)
     setEditError(null)
     try {
-      await updateSearchSet(editingItem.item_uuid, { title: editTitle.trim() })
+      await updateSearchSet(editingItem.item_uuid, { title: cleanTitle })
       if (editItemId) {
-        await updateSearchSetItem(editItemId, { searchphrase: editContent, title: editTitle.trim() })
+        await updateSearchSetItem(editItemId, { searchphrase: editContent, title: cleanTitle })
       } else {
         // Prompts created via the create modal don't have a SearchSetItem yet —
         // their body lives only in extraction_config.content. Materialize one so
         // the body persists through edits and is readable everywhere.
         await addSearchSetItem(editingItem.item_uuid, {
           searchphrase: editContent,
-          title: editTitle.trim(),
+          title: cleanTitle,
         })
       }
       closeEditModal()
@@ -387,13 +394,18 @@ export function LibraryTab() {
   }
 
   const handleCreate = async () => {
-    if (!createName.trim()) return
+    const nameError = getNameError(createName)
+    if (nameError) {
+      setCreateError(nameError)
+      return
+    }
+    const cleanName = normalizeName(createName)
     setCreating(true)
     setCreateError(null)
     const personalLib = libraries.find((l) => l.scope === 'personal')
     try {
       if (createModalType === 'workflow') {
-        const wf = await createWorkflow({ name: createName.trim(), description: createDesc.trim() || undefined })
+        const wf = await createWorkflow({ name: cleanName, description: createDesc.trim() || undefined })
         if (personalLib) {
           await addItemToLibrary(personalLib.id, { item_id: wf.id, kind: 'workflow' })
         }
@@ -403,7 +415,7 @@ export function LibraryTab() {
       } else {
         // extraction, prompt, or formatter — all stored as SearchSets
         const config = createDesc.trim() ? { content: createDesc.trim() } : undefined
-        const ss = await createSearchSet({ title: createName.trim(), set_type: createModalType ?? 'extraction', extraction_config: config })
+        const ss = await createSearchSet({ title: cleanName, set_type: createModalType ?? 'extraction', extraction_config: config })
         if (personalLib) {
           await addItemToLibrary(personalLib.id, { item_id: ss.id, kind: 'search_set' })
         }
@@ -830,11 +842,12 @@ export function LibraryTab() {
                     autoFocus
                     type="text"
                     value={newFolderName}
+                    maxLength={MAX_NAME_LENGTH}
                     onChange={(e) => setNewFolderName(e.target.value)}
                     placeholder="Folder name"
                     onKeyDown={async (e) => {
                       if (e.key === 'Enter' && newFolderName.trim()) {
-                        await createFolder(newFolderName.trim())
+                        await createFolder(normalizeName(newFolderName))
                         setNewFolderMode(false)
                         setNewFolderName('')
                       } else if (e.key === 'Escape') {
@@ -881,10 +894,11 @@ export function LibraryTab() {
                           autoFocus
                           type="text"
                           value={renameValue}
+                          maxLength={MAX_NAME_LENGTH}
                           onChange={(e) => setRenameValue(e.target.value)}
                           onKeyDown={async (e) => {
                             if (e.key === 'Enter' && renameValue.trim()) {
-                              await renameFolder(folder.uuid, renameValue.trim())
+                              await renameFolder(folder.uuid, normalizeName(renameValue))
                               setRenamingFolder(null)
                             } else if (e.key === 'Escape') {
                               setRenamingFolder(null)
@@ -892,7 +906,7 @@ export function LibraryTab() {
                           }}
                           onBlur={async () => {
                             if (renameValue.trim()) {
-                              await renameFolder(folder.uuid, renameValue.trim())
+                              await renameFolder(folder.uuid, normalizeName(renameValue))
                             }
                             setRenamingFolder(null)
                           }}
@@ -1254,9 +1268,10 @@ export function LibraryTab() {
               <input
                 type="text"
                 value={createName}
-                onChange={(e) => setCreateName(e.target.value)}
+                onChange={(e) => { setCreateName(e.target.value); if (createError) setCreateError(null) }}
                 placeholder={modalConfig[createModalType].namePlaceholder}
                 autoFocus
+                maxLength={MAX_NAME_LENGTH}
                 style={{
                   width: '100%',
                   padding: '10px 14px',
@@ -1269,6 +1284,9 @@ export function LibraryTab() {
                 }}
                 onKeyDown={(e) => e.key === 'Enter' && !modalConfig[createModalType].showDesc && handleCreate()}
               />
+              <div style={{ marginTop: 4, textAlign: 'right', fontSize: 11, color: createName.length >= MAX_NAME_LENGTH ? '#dc2626' : '#9aa0a6' }}>
+                {createName.length}/{MAX_NAME_LENGTH}
+              </div>
             </div>
             {modalConfig[createModalType].showDesc && (
               <div style={{ marginBottom: 20 }}>
@@ -1402,9 +1420,10 @@ export function LibraryTab() {
               <input
                 type="text"
                 value={editTitle}
-                onChange={(e) => setEditTitle(e.target.value)}
+                onChange={(e) => { setEditTitle(e.target.value); if (editError) setEditError(null) }}
                 placeholder="Title"
                 autoFocus
+                maxLength={MAX_NAME_LENGTH}
                 style={{
                   width: '100%',
                   padding: '10px 14px',
