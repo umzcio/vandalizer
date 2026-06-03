@@ -163,7 +163,6 @@ export function WorkflowAutovalidatePanel({ workflowId }: { workflowId: string }
   return (
     <div
       style={{
-        marginTop: 32,
         padding: 20,
         border: '1px solid #2e2e2e',
         borderRadius: 8,

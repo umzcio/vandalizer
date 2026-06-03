@@ -6299,6 +6299,23 @@ function ValidateTab({
           )}
         </div>
 
+        {/* Tune this workflow (autovalidate optimizer) — the primary scoring
+            surface, mirroring the extraction Validate tab. Apply writes the
+            certified result; the on-demand detailed validation below is a
+            diagnostic, not a competing score. */}
+        {workflowId && <WorkflowAutovalidatePanel workflowId={workflowId} />}
+
+        {/* ---- Detailed validation (on demand) ---- */}
+        <div style={{ borderTop: '1px solid #e5e7eb', paddingTop: 16 }}>
+          <div style={{ fontSize: 14, fontWeight: 600, color: '#202124', marginBottom: 4 }}>
+            Detailed validation
+          </div>
+          <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 12 }}>
+            Run the validation plan as-is and inspect the grade and per-check breakdown.
+            For the official score and tuning, use “Tune this workflow” above.
+          </div>
+        </div>
+
         {/* ---- Run Buttons ---- */}
         <div style={{ display: 'flex', gap: 8 }}>
           {hasInputs && hasChecks ? (
@@ -6724,11 +6741,6 @@ function ValidateTab({
           excludeUuids={inputs.filter(i => i.document_uuid).map(i => i.document_uuid!)}
         />
       )}
-
-      {/* Workflow autovalidate (wizard-driven optimizer). Lives at the bottom
-         of the Validate tab so users see diagnostics first and reach for the
-         optimizer only when they want a closed-loop fix. */}
-      {workflowId && <WorkflowAutovalidatePanel workflowId={workflowId} />}
 
       {/* ---- Test-case proposal modal ---- */}
       {proposalsOpen && (
