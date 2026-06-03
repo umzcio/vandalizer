@@ -318,6 +318,30 @@ class TestExchangeToken:
 
 
 # ---------------------------------------------------------------------------
+# Redis client singleton
+# ---------------------------------------------------------------------------
+
+class TestRedisClientSingleton:
+    """_redis_client must reuse one process-wide client, never build one per
+    call. Regression guard for the file-descriptor leak (prod incident
+    2026-06-03): a new redis.Redis() per call opened connection pools that were
+    never closed, contributing to [Errno 24] Too many open files.
+    """
+
+    def test_reuses_single_client(self):
+        credentials_service._redis_singleton = None
+        try:
+            with patch("app.services.credentials_service.redis.Redis") as mock_redis:
+                mock_redis.side_effect = lambda *a, **k: object()
+                first = credentials_service._redis_client()
+                second = credentials_service._redis_client()
+                assert first is second, "must reuse the cached client, not rebuild it"
+                assert mock_redis.call_count == 1, "redis.Redis() must be constructed exactly once"
+        finally:
+            credentials_service._redis_singleton = None
+
+
+# ---------------------------------------------------------------------------
 # Bearer cache
 # ---------------------------------------------------------------------------
 
