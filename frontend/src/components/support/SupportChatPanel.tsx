@@ -442,6 +442,15 @@ function ChatView({
   const [savingEdit, setSavingEdit] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const messageRef = useRef<HTMLTextAreaElement>(null)
+
+  // Auto-grow the reply textarea to fit its content (up to a max height).
+  useEffect(() => {
+    const el = messageRef.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = `${Math.min(el.scrollHeight, 160)}px`
+  }, [message])
 
   const loadTicket = useCallback(async () => {
     try {
@@ -894,6 +903,7 @@ function ChatView({
           </button>
           <input ref={fileInputRef} type="file" multiple className="hidden" onChange={handleFileUpload} />
           <textarea
+            ref={messageRef}
             value={message}
             onChange={(e) => setMessage(e.target.value)}
             onKeyDown={handleKeyDown}
@@ -905,7 +915,7 @@ function ChatView({
                   : 'Type a message...'
             }
             rows={1}
-            className={`flex-1 resize-none rounded-lg px-3 py-1.5 text-sm focus:outline-none ${
+            className={`max-h-40 flex-1 resize-none overflow-y-auto rounded-lg px-3 py-1.5 text-sm focus:outline-none ${
               isInternalNote
                 ? 'border border-yellow-400 bg-white focus:border-yellow-500'
                 : 'border border-gray-300 focus:border-blue-500'

@@ -681,6 +681,15 @@ function ChatView({
   const [savingEdit, setSavingEdit] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const replyRef = useRef<HTMLTextAreaElement>(null)
+
+  // Auto-grow the reply textarea to fit its content (up to a max height).
+  useEffect(() => {
+    const el = replyRef.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = `${Math.min(el.scrollHeight, 200)}px`
+  }, [reply])
 
   const loadTicket = useCallback(async () => {
     try {
@@ -1131,7 +1140,7 @@ function ChatView({
                 </span>
               )}
             </div>
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
               <button
                 onClick={() => fileInputRef.current?.click()}
                 title="Attach file"
@@ -1140,16 +1149,20 @@ function ChatView({
                 <Paperclip size={16} />
               </button>
               <input ref={fileInputRef} type="file" multiple onChange={handleFileUpload} style={{ display: 'none' }} />
-              <input
+              <textarea
+                ref={replyRef}
                 value={reply}
                 onChange={(e) => setReply(e.target.value)}
                 onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() } }}
                 placeholder={isInternalNote ? 'Leave a note for other agents...' : 'Reply as support...'}
+                rows={1}
                 style={{
                   flex: 1, padding: '8px 12px', fontSize: 14,
                   border: isInternalNote ? '1px solid #ca8a04' : '1px solid #d1d5db',
                   borderRadius: 'var(--ui-radius, 12px)', outline: 'none',
                   background: '#fff',
+                  resize: 'none', fontFamily: 'inherit', lineHeight: 1.4,
+                  maxHeight: 200, overflowY: 'auto',
                 }}
               />
               <button
