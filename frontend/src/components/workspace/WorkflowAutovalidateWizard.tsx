@@ -18,9 +18,11 @@ import type { ModelInfo } from '../../types/workflow'
 import {
   acceptTestCases,
   getExpectedOutputs,
+  getValidationInputs,
   proposeTestCases,
   startWorkflowOptimization,
   synthesizeTestCase,
+  updateValidationInputs,
   type ExpectedOutput,
   type StartWorkflowOptimizationOptions,
   type TestCaseProposal,
@@ -152,9 +154,18 @@ export function WorkflowAutovalidateWizard({ workflowId, onClose, onStarted }: P
   const handleSynthesize = async () => {
     setSynthesizing(true)
     try {
-      await synthesizeTestCase(workflowId)
+      // synthesize only returns {label, text} — it doesn't persist. Save it as a
+      // text input ourselves (mirrors ValidateTab) so it actually appears under
+      // Validate tab → Test Inputs; otherwise we'd direct the user to find a
+      // seed that was never saved.
+      const seed = await synthesizeTestCase(workflowId)
+      const { inputs } = await getValidationInputs(workflowId)
+      await updateValidationInputs(workflowId, [
+        ...inputs,
+        { id: `synth-${Date.now()}`, type: 'text', label: seed.label, text: seed.text },
+      ])
       toast(
-        'Synthesized a seed input. Open the Validate tab → Test Inputs to find it, run the workflow, then come back here.',
+        'Synthesized and saved a seed input. Open the Validate tab → Test Inputs to run it, then come back here to tune.',
         'success',
       )
     } catch (e) {
