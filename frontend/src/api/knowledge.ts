@@ -232,6 +232,20 @@ export type KBValidationResult = {
     discrimination_summary?: { useful: number; redundant: number; failing: number; other: number }
     details: KBValidationDetail[]
   }
+  // Certified quality score (raw_score after the low-sample-size discount),
+  // matching the persisted quality tile shown later.
+  score?: number | null
+  quality_tier?: string | null
+  score_breakdown?: {
+    raw_score: number
+    final_score: number
+    sample_size_factor: number
+    sample_size_penalty: number
+    num_test_cases: number
+    num_runs: number
+    test_cases_needed: number
+    runs_needed: number
+  } | null
 }
 
 export function runKBValidation(
@@ -379,15 +393,23 @@ export type PerQueryResult = {
   retrieved_sources?: string[]
 }
 
+export type TrialConfig = {
+  k: number
+  model: string | null
+  prompt_variant: string
+  query_rewriting: boolean
+  source_label_visibility: boolean
+  // LLM reranking sweep axis (backend RERANK_VALUES). Older runs may omit it;
+  // the backend default is 'off'.
+  rerank?: string
+  // Answer-generation temperature sweep axis (backend ANSWER_TEMPERATURE_VALUES).
+  // Older runs may omit it; the backend default is 0.0.
+  answer_temperature?: number
+}
+
 export type OptimizationTrial = {
   trial_id: string
-  config: {
-    k: number
-    model: string | null
-    prompt_variant: string
-    query_rewriting: boolean
-    source_label_visibility: boolean
-  }
+  config: TrialConfig
   // Blended quality score (judge 0.40 + retrieval 0.25 + health 0.20 + coverage 0.15)
   // on the same 0..1 scale the validation header reports.
   score: number
@@ -404,6 +426,10 @@ export type OptimizationTrial = {
   error?: string
   started_at?: string
   duration_seconds?: number
+  // Why an early_stopped trial bailed: 'below_no_kb' (worse than no knowledge
+  // base at all) or 'below_best' (trailing the current leader). Present only on
+  // early_stopped trials.
+  early_stop_reason?: 'below_no_kb' | 'below_best'
 }
 
 export type TestQuerySnapshot = {

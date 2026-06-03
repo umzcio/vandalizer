@@ -93,6 +93,9 @@ export function KBValidationRunTab({ kbUuid, kbReady, canManage, numQueries, lat
         </div>
       ) : (
         <div>
+          {/* Certified quality headline — same score as the KB quality tile */}
+          <CertifiedQualityCard run={latestRun} />
+
           {/* Lift card (if baseline available) */}
           <LiftCard run={latestRun} />
 
@@ -127,6 +130,42 @@ export function KBValidationRunTab({ kbUuid, kbReady, canManage, numQueries, lat
               />
             ))}
           </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function CertifiedQualityCard({ run }: { run: KBValidationResult }) {
+  if (run.score == null) return null
+  const tierColors: Record<string, { border: string; text: string }> = {
+    excellent: { border: '#22c55e55', text: '#22c55e' },
+    good: { border: '#3b82f655', text: '#60a5fa' },
+    fair: { border: '#f59e0b55', text: '#fbbf24' },
+  }
+  const tier = run.quality_tier || null
+  const c = (tier && tierColors[tier]) || { border: '#2e3a52', text: '#aaa' }
+  const tierLabel = tier ? tier.charAt(0).toUpperCase() + tier.slice(1) : 'Unrated'
+  const bd = run.score_breakdown
+  const penalized = !!bd && bd.sample_size_penalty > 0
+  const needed = bd?.test_cases_needed ?? 0
+  return (
+    <div style={{
+      padding: 12, marginBottom: 10, backgroundColor: '#1a1f2e',
+      border: `1px solid ${c.border}`, borderRadius: 6,
+    }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+        <span style={{ fontSize: 10, color: '#888', textTransform: 'uppercase', letterSpacing: 0.5 }}>Quality</span>
+        <span style={{ fontSize: 22, fontWeight: 700, color: c.text }}>
+          {tierLabel} — {Math.round(run.score)}%
+        </span>
+      </div>
+      {penalized && bd && (
+        <div style={{ fontSize: 11, color: '#fbbf24', lineHeight: 1.5, marginTop: 4 }}>
+          Discounted from a raw {Math.round(bd.raw_score)}% by a sample-size confidence penalty
+          ({`-${Math.round(bd.sample_size_penalty)} pts`}).{needed > 0
+            ? ` Add ${needed} more test quer${needed > 1 ? 'ies' : 'y'} to certify the full ${Math.round(bd.raw_score)}%.`
+            : ''}
         </div>
       )}
     </div>

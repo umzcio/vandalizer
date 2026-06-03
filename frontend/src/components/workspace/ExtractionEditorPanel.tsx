@@ -3506,6 +3506,47 @@ function ValidateTab({
             </button>
           </div>
 
+          {/* Certified quality headline — the SAME score that the quality tile
+              shows later, so the raw aggregates below never read as a silent
+              drop. Leads with the penalized score and explains how to certify
+              the full one. */}
+          {results.score != null && (() => {
+            const tierColors: Record<string, { bg: string; border: string; text: string }> = {
+              excellent: { bg: '#f0fdf4', border: '#86efac', text: '#15803d' },
+              good: { bg: '#eff6ff', border: '#93c5fd', text: '#1d4ed8' },
+              fair: { bg: '#fffbeb', border: '#fde68a', text: '#a16207' },
+            }
+            const tier = results.quality_tier || null
+            const c = (tier && tierColors[tier]) || { bg: '#f9fafb', border: '#e5e7eb', text: '#374151' }
+            const tierLabel = tier ? tier.charAt(0).toUpperCase() + tier.slice(1) : 'Unrated'
+            const bd = results.score_breakdown
+            const penalized = !!bd && bd.sample_size_penalty > 0
+            return (
+              <div style={{
+                padding: '12px 16px', borderRadius: 8,
+                backgroundColor: c.bg, border: `1px solid ${c.border}`,
+              }}>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                  <span style={{ fontSize: 12, fontWeight: 600, color: c.text }}>Quality</span>
+                  <span style={{ fontSize: 22, fontWeight: 700, color: c.text }}>
+                    {tierLabel} — {Math.round(results.score)}%
+                  </span>
+                </div>
+                {penalized && bd && (
+                  <div style={{ fontSize: 11, color: '#78350f', lineHeight: 1.5, marginTop: 4 }}>
+                    Discounted from a raw <strong>{Math.round(bd.raw_score)}%</strong> by a sample-size
+                    confidence penalty ({`-${Math.round(bd.sample_size_penalty)} pts`}).{' '}
+                    {bd.test_cases_needed > 0 && bd.runs_needed > 0
+                      ? `Add ${bd.test_cases_needed} more test case${bd.test_cases_needed > 1 ? 's' : ''} and run ${3} replicates each to certify the full ${Math.round(bd.raw_score)}%.`
+                      : bd.test_cases_needed > 0
+                        ? `Add ${bd.test_cases_needed} more test case${bd.test_cases_needed > 1 ? 's' : ''} to certify the full ${Math.round(bd.raw_score)}%.`
+                        : `Run ${3} replicates per test case to certify the full ${Math.round(bd.raw_score)}%.`}
+                  </div>
+                )}
+              </div>
+            )
+          })()}
+
           {/* Executive Summary Card */}
           <div style={{
             display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12,

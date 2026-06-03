@@ -80,24 +80,36 @@ async def persist_validation_run(
         # proxy (a plan with >=4 checks is considered adequate).
         num_tc = len(result.get("checks", []))
         ssf = _sample_size_factor(min(num_tc, 3), num_runs_val)
+        runs_needed = max(0, 3 - num_runs_val)
+    elif run_type == "kb_validation":
+        # KB validation is single-run by design (it never does replicates), so
+        # judging it on run count would discount every KB ~3x for a config it
+        # can't satisfy. Base confidence on test-query count alone.
+        num_tc = int(result.get("num_test_queries", 0))
+        ssf = min(1.0, num_tc / 3.0)
+        runs_needed = 0
     else:
         num_tc = len(result.get("test_cases", result.get("sources", [])))
         ssf = _sample_size_factor(num_tc, num_runs_val)
+        runs_needed = max(0, 3 - num_runs_val)
 
     if ssf < 1.0:
-        # Blend toward 50 (neutral) based on how much confidence we lack
-        score = score * ssf + 50.0 * (1.0 - ssf)
+        # Low confidence pulls the score toward a neutral 50 — but only ever to
+        # REDUCE it. A failing score stays visibly failing; we never inflate a
+        # bad result to look mediocre just because the sample was small.
+        blended = score * ssf + 50.0 * (1.0 - ssf)
+        score = min(score, blended)
 
     # Store score breakdown so the UI can explain penalties
     score_breakdown = {
         "raw_score": round(raw_score, 1),
         "final_score": round(score, 1),
         "sample_size_factor": round(ssf, 3),
-        "sample_size_penalty": round(raw_score - score, 1) if ssf < 1.0 else 0,
+        "sample_size_penalty": round(raw_score - score, 1),
         "num_test_cases": num_tc,
         "num_runs": num_runs_val,
         "test_cases_needed": max(0, 3 - num_tc),
-        "runs_needed": max(0, 3 - num_runs_val),
+        "runs_needed": runs_needed,
     }
 
     # Count checks for workflow validation

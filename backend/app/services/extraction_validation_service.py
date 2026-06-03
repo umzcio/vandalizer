@@ -369,8 +369,9 @@ async def run_validation(
     }
 
     # Persist validation run for quality tracking
-    from app.services.quality_service import persist_validation_run
-    await persist_validation_run(
+    from app.services.quality_service import compute_quality_tier, persist_validation_run
+
+    vr = await persist_validation_run(
         item_kind="search_set",
         item_id=search_set_uuid,
         item_name=ss.title if ss else "",
@@ -379,6 +380,16 @@ async def run_validation(
         user_id=user_id,
         model=model,
         extraction_config=extraction_config_override or {},
+    )
+
+    # Surface the *certified* score (raw score after the low-sample-size
+    # discount) alongside the raw aggregates so the completion card shows the
+    # same number as the persisted quality tile — instead of a raw accuracy
+    # that silently drops to a penalized score later.
+    result_dict["score"] = vr.score
+    result_dict["score_breakdown"] = vr.score_breakdown
+    result_dict["quality_tier"] = compute_quality_tier(
+        vr.score, sys_config.get_quality_config()
     )
 
     return result_dict
@@ -1106,8 +1117,9 @@ async def run_validation_v2(
     }
 
     # Persist validation run for quality tracking
-    from app.services.quality_service import persist_validation_run
-    await persist_validation_run(
+    from app.services.quality_service import compute_quality_tier, persist_validation_run
+
+    vr = await persist_validation_run(
         item_kind="search_set",
         item_id=search_set_uuid,
         item_name=ss.title if ss else "",
@@ -1116,6 +1128,16 @@ async def run_validation_v2(
         user_id=user_id,
         model=model,
         extraction_config=extraction_config_override or {},
+    )
+
+    # Surface the *certified* score (raw score after the low-sample-size
+    # discount) alongside the raw aggregates so the completion card shows the
+    # same number as the persisted quality tile — instead of a raw accuracy
+    # that silently drops to a penalized score later.
+    result_dict["score"] = vr.score
+    result_dict["score_breakdown"] = vr.score_breakdown
+    result_dict["quality_tier"] = compute_quality_tier(
+        vr.score, sys_config.get_quality_config()
     )
 
     return result_dict

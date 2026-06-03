@@ -31,6 +31,9 @@ import { QualityComparisonCard, type BaselinePoint } from '../shared/QualityComp
 import { SuggestionsList, type Suggestion } from '../shared/SuggestionsList'
 import { ApplyBackButton } from '../shared/ApplyBackButton'
 import { ApplyPreviewModal } from '../shared/ApplyPreviewModal'
+import { TrialsTable, TrialRow, makeStandardSortOptions } from '../shared/TrialsTable'
+import { WorkflowTrialExplainerModal } from './WorkflowTrialExplainerModal'
+import { summariseWorkflowTrialConfig } from './workflowTrialExplanations'
 import { WorkflowAutovalidateWizard } from './WorkflowAutovalidateWizard'
 import { DOMAIN_LABELS } from '../shared/labels'
 import { WhenToRunDisclosure } from '../shared/WhenToRunDisclosure'
@@ -279,6 +282,8 @@ export function WorkflowAutovalidatePanel({ workflowId }: { workflowId: string }
 }
 
 
+const WORKFLOW_TRIAL_SORT_OPTIONS = makeStandardSortOptions<WorkflowOptimizationTrial>()
+
 function CompletedView({
   run, onApply, onRevert, applying, reverting,
   selectedStepIds, onSelectionChange,
@@ -337,6 +342,9 @@ function CompletedView({
   const canApply = !!run.best_config && !run.tied_with_baseline
   const canRevert = run.previous_override !== undefined && run.previous_override !== null
 
+  // Trial tapped open in the plain-English explainer modal.
+  const [selectedTrial, setSelectedTrial] = useState<WorkflowOptimizationTrial | null>(null)
+
   return (
     <div style={{ marginTop: 16 }}>
       <QualityComparisonCard
@@ -383,6 +391,26 @@ function CompletedView({
           <SuggestionsList suggestions={suggestions} />
         </div>
       )}
+
+      {/* Trials — each tunes the workflow's steps differently. Tap one for a
+          plain-English breakdown of what it changed and how it scored. */}
+      {(run.trials || []).length > 0 && (
+        <div style={{ marginTop: 12 }}>
+          <TrialsTable<WorkflowOptimizationTrial>
+            trials={run.trials}
+            sortOptions={WORKFLOW_TRIAL_SORT_OPTIONS}
+            renderRow={(t) => (
+              <TrialRow trial={t} summariseConfig={(c) => summariseWorkflowTrialConfig(c)} />
+            )}
+            getRowKey={(t) => t.trial_id}
+            onRowClick={setSelectedTrial}
+            title="Trials — tap any for a plain-English breakdown"
+          />
+        </div>
+      )}
+
+      {/* Plain-English explainer for a tapped trial. */}
+      <WorkflowTrialExplainerModal trial={selectedTrial} onClose={() => setSelectedTrial(null)} />
 
       {Object.keys(run.best_per_step_config || {}).length > 0 && (
         <details style={{ marginTop: 12 }} open={selectedStepIds !== undefined}>

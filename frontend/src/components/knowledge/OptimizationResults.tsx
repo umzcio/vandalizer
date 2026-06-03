@@ -7,6 +7,7 @@ import { ApplyBackButton } from '../shared/ApplyBackButton'
 import { SuggestionsList, type Suggestion } from '../shared/SuggestionsList'
 import { QualityComparisonCard, type BaselinePoint } from '../shared/QualityComparisonCard'
 import { TrialsTable, TrialRow, makeStandardSortOptions } from '../shared/TrialsTable'
+import { TrialExplainerModal } from './TrialExplainerModal'
 import { EvalSetCompositionStrip } from '../shared/EvalSetCompositionStrip'
 import { TriCounter } from '../shared/TriCounter'
 import { TrialQueryDeltas } from '../shared/TrialQueryDeltas'
@@ -44,6 +45,10 @@ export function OptimizationResults({
     }
     return [...run.trials].sort((a, b) => b.score - a.score)[0]
   }, [run.trials, run.best_config])
+
+  // Trial tapped open in the plain-English explainer modal. Declared before the
+  // early returns below so hook order stays stable across run states.
+  const [selectedTrial, setSelectedTrial] = useState<OptimizationTrial | null>(null)
 
   if (run.status === 'failed') {
     return (
@@ -155,15 +160,20 @@ export function OptimizationResults({
         />
       )}
 
-      {/* Trials table */}
+      {/* Trials table — rows are tappable to open the plain-English explainer. */}
       {run.trials.length > 0 && (
         <TrialsTable
           trials={run.trials}
           sortOptions={KB_TRIAL_SORT_OPTIONS}
           renderRow={(t) => <TrialRow trial={t} summariseConfig={summariseConfig} />}
           getRowKey={(t) => t.trial_id}
+          onRowClick={setSelectedTrial}
+          title="Trials — tap any for a plain-English breakdown"
         />
       )}
+
+      {/* Plain-English explainer for a tapped trial. */}
+      <TrialExplainerModal trial={selectedTrial} onClose={() => setSelectedTrial(null)} />
 
       {/* Reproducibility — judge model, prompt version, seed, variance n */}
       <ReproducibilityPanel run={run} />

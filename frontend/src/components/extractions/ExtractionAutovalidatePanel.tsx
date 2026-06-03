@@ -718,25 +718,14 @@ function BestConfigCard({
 
 const EXTRACTION_TRIAL_SORT_OPTIONS = makeStandardSortOptions<ExtractionTrial>()
 
-/** Domain-specific config formatter for extraction configs (shape: {model, strategy, thinking, …}).
+/** Domain-specific config formatter for extraction trial configs.
  *
- * The terse form is for the trials table (space-constrained, repeating context);
- * the verbose form is for the running-state summary, where the user may be
- * seeing extraction jargon for the first time. */
+ * Delegates to the shared decoder so the row, the progress card, and the
+ * explainer modal all read the real (nested) config shape — strategy, thinking,
+ * consensus, chunking, prompt variant, model. The terse form is for the trials
+ * table; the verbose form is for the running-state summary. */
 function summariseExtractionConfig(c: Record<string, unknown>, verbose = false): string {
-  const bits: string[] = []
-  if (c.model) bits.push(String(c.model))
-  if (c.strategy) {
-    const s = String(c.strategy)
-    bits.push(verbose ? `${s} extraction` : s)
-  }
-  if (c.thinking) bits.push(verbose ? 'with thinking' : 'thinking')
-  if (c.use_images) bits.push(verbose ? 'reads as images' : 'image-mode')
-  const chunkSize = (c as { chunking?: { chunk_size?: number } }).chunking?.chunk_size
-  if (typeof chunkSize === 'number') {
-    bits.push(verbose ? `chunks of ${chunkSize} chars` : `chunk=${chunkSize}`)
-  }
-  return bits.length > 0 ? bits.join(' · ') : 'default'
+  return summariseExtractionTrialConfig(c, verbose)
 }
 
 

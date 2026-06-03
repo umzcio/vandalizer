@@ -1355,9 +1355,9 @@ async def run_kb_validation(
     }
 
     # Persist the validation run
-    from app.services.quality_service import persist_validation_run
+    from app.services.quality_service import compute_quality_tier, persist_validation_run
 
-    await persist_validation_run(
+    vr = await persist_validation_run(
         item_kind="knowledge_base",
         item_id=kb_uuid,
         item_name=kb.title,
@@ -1365,5 +1365,15 @@ async def run_kb_validation(
         result=result,
         user_id=user_id,
     )
+
+    # Surface the *certified* score (raw score after the low-sample-size
+    # discount) and tier so the validation header shows the same number as the
+    # persisted quality tile, instead of a raw score that drops later.
+    from app.models.system_config import SystemConfig
+
+    sys_cfg = await SystemConfig.get_config()
+    result["score"] = vr.score
+    result["score_breakdown"] = vr.score_breakdown
+    result["quality_tier"] = compute_quality_tier(vr.score, sys_cfg.get_quality_config())
 
     return result

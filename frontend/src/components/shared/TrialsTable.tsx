@@ -98,6 +98,9 @@ interface TrialsTableProps<TTrial> {
   getRowKey: (trial: TTrial) => string
   title?: string
   maxHeight?: number | string
+  /** When provided, rows become clickable (pointer cursor + hover + keyboard)
+   * and invoke this with the clicked trial. Omit for a static, read-only list. */
+  onRowClick?: (trial: TTrial) => void
 }
 
 /**
@@ -113,6 +116,7 @@ export function TrialsTable<TTrial>({
   renderRow, getRowKey,
   title = 'Trials',
   maxHeight = 320,
+  onRowClick,
 }: TrialsTableProps<TTrial>) {
   const initialKey = defaultSortKey ?? sortOptions[0]?.key ?? ''
   const [sortKey, setSortKey] = useState<string>(initialKey)
@@ -148,11 +152,47 @@ export function TrialsTable<TTrial>({
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight, overflowY: 'auto' }}>
         {sorted.map(t => (
-          <div key={getRowKey(t)}>
-            {renderRow(t)}
-          </div>
+          onRowClick ? (
+            <ClickableRow key={getRowKey(t)} onClick={() => onRowClick(t)}>
+              {renderRow(t)}
+            </ClickableRow>
+          ) : (
+            <div key={getRowKey(t)}>
+              {renderRow(t)}
+            </div>
+          )
         ))}
       </div>
+    </div>
+  )
+}
+
+/** Row wrapper that adds click + keyboard activation and a hover affordance.
+ * Used only when the table is given an onRowClick. */
+function ClickableRow({ onClick, children }: { onClick: () => void; children: ReactNode }) {
+  const [hover, setHover] = useState(false)
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={onClick}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          onClick()
+        }
+      }}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      style={{
+        cursor: 'pointer',
+        borderRadius: 4,
+        outline: hover ? '1px solid #3a3a3a' : '1px solid transparent',
+        transition: 'outline-color 0.12s',
+      }}
+      title="View what this trial tried and why it matters"
+    >
+      {children}
     </div>
   )
 }
