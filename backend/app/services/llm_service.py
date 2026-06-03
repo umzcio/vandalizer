@@ -1,5 +1,7 @@
 """LLM service  - provider classes and agent creation, ported from agents.py."""
 
+import asyncio
+import weakref
 from dataclasses import dataclass
 from typing import Optional
 
@@ -32,6 +34,53 @@ def clear_agent_caches():
     _extraction_agent_cache.clear()
     _rag_agent_cache.clear()
     _prompt_agent_cache.clear()
+
+
+# ---------------------------------------------------------------------------
+# Per-event-loop HTTP client
+# ---------------------------------------------------------------------------
+# One shared httpx.AsyncClient per event loop, reused across every LLM call on
+# that loop. Why per-loop instead of per-call or process-wide:
+#   * pydantic-ai's process-wide `cached_async_http_client` is shared across ALL
+#     loops. The workflow MultiTaskNode runs each task via run_sync() on its own
+#     ThreadPoolExecutor thread (each thread gets its own event loop), so reusing
+#     one client's connection pool across loops raises "bound to a different
+#     event loop", which the OpenAI SDK re-wraps as a zero-token "Connection
+#     error" (#455).
+#   * The first fix for #455 built a fresh client on EVERY call. But run_sync
+#     reuses one long-lived loop per worker thread, so those per-call clients —
+#     never closed — piled their connection pools + sockets onto that live loop
+#     until the process hit `[Errno 24] Too many open files` (prod incident
+#     2026-06-03, Sentry 7517108223; the AutoReconnect surfaced on the healthy
+#     Mongo singleton, the victim, not the cause).
+# Caching one client per loop gives both properties: never shared across loops
+# (event-loop safe) and bounded to the small number of live loops. The
+# WeakKeyDictionary drops a loop's entry once the loop is garbage-collected
+# (e.g. when a workflow's ThreadPoolExecutor thread exits), letting its client —
+# and the file descriptors it holds — be reclaimed.
+_loop_http_clients: "weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, httpx.AsyncClient]" = (
+    weakref.WeakKeyDictionary()
+)
+
+
+def _get_loop_http_client() -> httpx.AsyncClient:
+    """Return the httpx.AsyncClient bound to the current event loop, creating it
+    on first use. Reused across calls so we never leak a client per call."""
+    from app.config import Settings
+
+    read_timeout = max(30, Settings().workflow_llm_timeout_seconds)
+    # Mirror pydantic-ai's own run_sync() loop resolution so we key off the exact
+    # loop the request will run on.
+    try:
+        loop = asyncio.get_event_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+    client = _loop_http_clients.get(loop)
+    if client is None or client.is_closed:
+        client = httpx.AsyncClient(timeout=httpx.Timeout(read_timeout, connect=10.0))
+        _loop_http_clients[loop] = client
+    return client
 
 
 # ---------------------------------------------------------------------------
@@ -287,7 +336,13 @@ def get_agent_model(
         from pydantic_ai.models.anthropic import AnthropicModel
         from pydantic_ai.providers.anthropic import AnthropicProvider
         model_name = agent_model.split("/", 1)[1] if agent_model.startswith("anthropic/") else agent_model
-        provider_kwargs: dict = {"api_key": api_key}
+        # Pass the per-loop httpx client so this provider doesn't fall back to
+        # pydantic-ai's process-wide cached_async_http_client. The cached client
+        # is shared across loops and breaks under the workflow ThreadPoolExecutor
+        # ("bound to a different event loop" -> zero-token Connection error, #455);
+        # the per-loop client is event-loop safe and reused, not leaked — see
+        # _get_loop_http_client above.
+        provider_kwargs: dict = {"api_key": api_key, "http_client": _get_loop_http_client()}
         if endpoint:
             provider_kwargs["base_url"] = endpoint
         return AnthropicModel(model_name=model_name, provider=AnthropicProvider(**provider_kwargs))
@@ -303,35 +358,47 @@ def get_agent_model(
         model_name = agent_model.split("/", 1)[1] if agent_model.startswith("openrouter/") else agent_model
         if endpoint:
             from openai import AsyncOpenAI
-            client = AsyncOpenAI(api_key=api_key, base_url=endpoint, timeout=120.0)
+            # Reuse the per-loop httpx client so we don't leak an SDK client (and
+            # its connection pool) per call — see _get_loop_http_client above.
+            client = AsyncOpenAI(
+                api_key=api_key, base_url=endpoint, timeout=120.0,
+                http_client=_get_loop_http_client(),
+            )
             provider = OpenRouterProvider(openai_client=client, app_title="Vandalizer")
         else:
-            provider = OpenRouterProvider(api_key=api_key, app_title="Vandalizer")
+            # Pass the per-loop httpx client so we don't fall back to the
+            # cross-loop-unsafe process-wide cache — see _get_loop_http_client.
+            provider = OpenRouterProvider(
+                api_key=api_key, app_title="Vandalizer",
+                http_client=_get_loop_http_client(),
+            )
         return OpenAIModel(model_name=model_name, provider=provider)
 
     # Handle external models with OpenAI protocol (use OpenAI SDK directly)
     if model_config and model_config.get("external", False) and api_protocol == "openai":
         model_name = agent_model.split("/")[-1] if "/" in agent_model else agent_model
         from openai import AsyncOpenAI
-        client_kwargs: dict = {"api_key": api_key, "timeout": 120.0}
+        # Reuse the per-loop httpx client so we don't leak an SDK client (and its
+        # connection pool) per call — see _get_loop_http_client above.
+        client_kwargs: dict = {
+            "api_key": api_key,
+            "timeout": 120.0,
+            "http_client": _get_loop_http_client(),
+        }
         if endpoint:
             client_kwargs["base_url"] = endpoint
         client = AsyncOpenAI(**client_kwargs)
         return OpenAIModel(model_name=model_name, openai_client=client)
 
-    # Build a dedicated httpx client per call instead of letting the provider
-    # fall back to pydantic-ai's process-wide cached_async_http_client. The
-    # cached client is shared across the workflow MultiTaskNode's
-    # ThreadPoolExecutor threads, each of which runs pydantic-ai's run_sync()
+    # Use the per-event-loop httpx client instead of pydantic-ai's process-wide
+    # cached_async_http_client. The cached client is shared across the workflow
+    # MultiTaskNode's ThreadPoolExecutor threads, each of which runs run_sync()
     # on its own event loop; reusing one client's connection pool across loops
     # raises "RuntimeError: bound to a different event loop", which the OpenAI
-    # SDK re-wraps as a zero-token "Connection error". A fresh client per call
-    # binds only to the loop that uses it.
-    from app.config import Settings
-    read_timeout = max(30, Settings().workflow_llm_timeout_seconds)
-    dedicated_client = httpx.AsyncClient(
-        timeout=httpx.Timeout(read_timeout, connect=10.0)
-    )
+    # SDK re-wraps as a zero-token "Connection error". The per-loop client binds
+    # only to the loop that uses it, and is reused (not rebuilt per call) so it
+    # doesn't leak file descriptors — see _get_loop_http_client above.
+    dedicated_client = _get_loop_http_client()
     if api_protocol == "ollama":
         provider = OllamaProvider(api_key=api_key, endpoint=endpoint, http_client=dedicated_client)
     elif api_protocol == "vllm":

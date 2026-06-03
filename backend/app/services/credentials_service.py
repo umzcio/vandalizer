@@ -118,9 +118,21 @@ def metadata_view(credential_doc: dict) -> dict:
 # OAuth client_credentials JWT-assertion flow
 # ---------------------------------------------------------------------------
 
+# Process-wide sync Redis client, created once and reused. A new redis.Redis()
+# per call opens a fresh connection pool whose sockets are never reclaimed
+# (callers here don't close it), leaking file descriptors until the process hits
+# [Errno 24] Too many open files — get_bearer_token() runs on every credentialed
+# workflow API call. redis.Redis is thread-safe and pools internally, so a
+# singleton is both correct and what avoids the leak.
+_redis_singleton: "redis.Redis | None" = None
+
+
 def _redis_client() -> redis.Redis:
-    redis_host = os.environ.get("redis_host", "localhost")
-    return redis.Redis(host=redis_host, port=6379, db=0, decode_responses=True)
+    global _redis_singleton
+    if _redis_singleton is None:
+        redis_host = os.environ.get("redis_host", "localhost")
+        _redis_singleton = redis.Redis(host=redis_host, port=6379, db=0, decode_responses=True)
+    return _redis_singleton
 
 
 def _build_client_assertion(payload: dict) -> str:
