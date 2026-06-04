@@ -6,7 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-## [v4.5.0] - 2026-06-03
+## [v4.5.0] - 2026-06-04
 
 ### Added
 - **Present & Pitch communications surface.** A new public area under `/docs/present` for introducing Vandalizer to non-developers, visually distinct from the developer docs. Four audience tracks (leadership, IT/deploy, team, researchers), each rendered three ways from a single source-of-truth content file so they can't drift: a skimmable **Read** page, a full-screen keyboard-driven **Present** deck, and copyable ~30s spoken + one-paragraph written **Pitch** elevator pitches. Print-to-PDF emits a one-slide-per-page handout. Content is authored only from UI-reachable features with a claim→source map and a dev-time completeness guard. Entry points: a dedicated block in the Docs sidebar, an in-app link in the user menu, and an "Overview" link in the Landing top nav. Zero new dependencies.
