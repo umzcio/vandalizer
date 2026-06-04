@@ -33,6 +33,10 @@ _ENCRYPTED_FIELDS: dict[str, tuple[str, ...]] = {
     "oauth_client_credentials": ("private_key", "client_secret"),
 }
 
+# Sentinel returned to clients in place of an encrypted field's value, so the
+# real secret never leaves the server. A client must never echo it back.
+MASKED_SECRET = "<set>"
+
 # Redis cache key prefix and skew window for bearer expiry.
 _TOKEN_CACHE_PREFIX = "credentials:bearer:"
 _BEARER_REFRESH_SKEW_SECONDS = 30
@@ -98,7 +102,7 @@ def metadata_view(credential_doc: dict) -> dict:
     encrypted_fields = set(_ENCRYPTED_FIELDS.get(credential_doc.get("type", ""), ()))
     for k, v in payload.items():
         if k in encrypted_fields:
-            safe_payload[k] = "<set>" if v else ""
+            safe_payload[k] = MASKED_SECRET if v else ""
         else:
             safe_payload[k] = v
     return {
@@ -112,6 +116,27 @@ def metadata_view(credential_doc: dict) -> dict:
         "created_at": credential_doc.get("created_at"),
         "updated_at": credential_doc.get("updated_at"),
     }
+
+
+def merge_update_payload(credential_type: str, existing_encrypted: dict, provided: dict) -> dict:
+    """Overlay caller-supplied fields onto the existing (decrypted) payload.
+
+    Lets a caller rotate a single secret (or tweak one non-secret field) without
+    resubmitting the rest — important because secrets are never returned to the
+    client, so it can't echo them back. A provided value that is ``None``, the
+    masked sentinel, or an empty string for a secret field means "keep the
+    stored value". Returns plaintext ready for :func:`validate_payload` /
+    :func:`encrypt_payload`.
+    """
+    merged = decrypt_payload(credential_type, existing_encrypted)
+    secret_fields = set(_ENCRYPTED_FIELDS.get(credential_type, ()))
+    for key, value in provided.items():
+        if value is None or value == MASKED_SECRET:
+            continue
+        if key in secret_fields and value == "":
+            continue
+        merged[key] = value
+    return merged
 
 
 # ---------------------------------------------------------------------------
