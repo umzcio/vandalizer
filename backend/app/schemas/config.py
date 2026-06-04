@@ -39,6 +39,7 @@ class ThemeConfigResponse(BaseModel):
     ui_radius: str = "12px"
     org_name: str = ""
     logo_data_url: str = ""
+    icon_data_url: str = ""
 
 
 class UpdateThemeConfigRequest(BaseModel):
@@ -46,6 +47,7 @@ class UpdateThemeConfigRequest(BaseModel):
     ui_radius: Optional[str] = None
     org_name: Optional[str] = None
     logo_data_url: Optional[str] = None
+    icon_data_url: Optional[str] = None
 
 
 class OnboardingStatusResponse(BaseModel):

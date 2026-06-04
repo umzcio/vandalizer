@@ -144,19 +144,19 @@ async def update_user_config(req: UpdateUserConfigRequest, user: User = Depends(
 _MAX_LOGO_DATA_URL_BYTES = 500_000  # ~375KB after base64 — plenty for a wordmark
 
 
-def _validate_logo_data_url(value: str) -> str:
+def _validate_image_data_url(value: str, field: str) -> str:
     value = (value or "").strip()
     if not value:
         return ""
     if not value.startswith("data:image/"):
         raise HTTPException(
             status_code=400,
-            detail="logo_data_url must be a data:image/* URL",
+            detail=f"{field} must be a data:image/* URL",
         )
     if len(value) > _MAX_LOGO_DATA_URL_BYTES:
         raise HTTPException(
             status_code=400,
-            detail=f"logo image too large (max {_MAX_LOGO_DATA_URL_BYTES // 1024} KB encoded)",
+            detail=f"image too large (max {_MAX_LOGO_DATA_URL_BYTES // 1024} KB encoded)",
         )
     return value
 
@@ -170,6 +170,7 @@ async def get_theme():
         ui_radius=config.ui_radius,
         org_name=config.org_name,
         logo_data_url=config.logo_data_url,
+        icon_data_url=config.icon_data_url,
     )
 
 
@@ -185,7 +186,9 @@ async def update_theme(req: UpdateThemeConfigRequest, user: User = Depends(get_c
     if req.org_name is not None:
         config.org_name = req.org_name.strip()
     if req.logo_data_url is not None:
-        config.logo_data_url = _validate_logo_data_url(req.logo_data_url)
+        config.logo_data_url = _validate_image_data_url(req.logo_data_url, "logo_data_url")
+    if req.icon_data_url is not None:
+        config.icon_data_url = _validate_image_data_url(req.icon_data_url, "icon_data_url")
     config.updated_at = datetime.datetime.now(datetime.timezone.utc)
     config.updated_by = user.user_id
     await config.save()
@@ -194,6 +197,7 @@ async def update_theme(req: UpdateThemeConfigRequest, user: User = Depends(get_c
         ui_radius=config.ui_radius,
         org_name=config.org_name,
         logo_data_url=config.logo_data_url,
+        icon_data_url=config.icon_data_url,
     )
 
 

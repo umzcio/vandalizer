@@ -19,7 +19,7 @@ import { useAuth } from '../hooks/useAuth'
 import { useTeams } from '../hooks/useTeams'
 import { getThemeConfig, updateThemeConfig } from '../api/config'
 import type { ThemeConfig } from '../api/config'
-import { useBranding, DEFAULT_ORG_NAME } from '../contexts/BrandingContext'
+import { useBranding, DEFAULT_ORG_NAME, DEFAULT_ICON_URL } from '../contexts/BrandingContext'
 import {
   getUsageStats, getUsageTimeseries, getUserLeaderboard, getTeamLeaderboard,
   getTeamDetail, getUserDetail, getUserHistory,
@@ -2642,6 +2642,8 @@ function ConfigTab() {
   const [themeOrgName, setThemeOrgName] = useState('')
   const [themeLogo, setThemeLogo] = useState('')
   const [themeLogoError, setThemeLogoError] = useState<string | null>(null)
+  const [themeIcon, setThemeIcon] = useState('')
+  const [themeIconError, setThemeIconError] = useState<string | null>(null)
   const [themeSaving, setThemeSaving] = useState(false)
   const [themeSaved, setThemeSaved] = useState(false)
 
@@ -2807,6 +2809,7 @@ function ConfigTab() {
       setThemeRadius(parseInt(t.ui_radius) || 12)
       setThemeOrgName(t.org_name || '')
       setThemeLogo(t.logo_data_url || '')
+      setThemeIcon(t.icon_data_url || '')
     }).catch(() => {})
   }, [])
 
@@ -2862,6 +2865,7 @@ function ConfigTab() {
         ui_radius: `${themeRadius}px`,
         org_name: themeOrgName.trim(),
         logo_data_url: themeLogo,
+        icon_data_url: themeIcon,
       })
       applyThemeToDOM(updated)
       await branding.refresh()
@@ -2888,6 +2892,25 @@ function ConfigTab() {
       setThemeLogo(dataUrl)
     } catch {
       setThemeLogoError('Could not read the selected file.')
+    }
+  }
+
+  const handleIconFile = async (file: File | null) => {
+    setThemeIconError(null)
+    if (!file) return
+    if (!file.type.startsWith('image/')) {
+      setThemeIconError('Please choose an image file (PNG, SVG, JPG).')
+      return
+    }
+    try {
+      const dataUrl = await readFileAsDataUrl(file)
+      if (dataUrl.length > MAX_LOGO_BYTES) {
+        setThemeIconError(`Image too large — keep encoded size under ${Math.round(MAX_LOGO_BYTES / 1024)} KB.`)
+        return
+      }
+      setThemeIcon(dataUrl)
+    } catch {
+      setThemeIconError('Could not read the selected file.')
     }
   }
 
@@ -4001,6 +4024,56 @@ ${playgroundResult.request.user_prompt}`}
               </div>
               {themeLogoError && (
                 <div style={{ fontSize: 12, color: '#b91c1c', marginTop: 6 }}>{themeLogoError}</div>
+              )}
+            </div>
+            <div>
+              <label style={labelStyle}>Icon / Mascot</label>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <div style={{
+                  width: 56, height: 56, borderRadius: 'var(--ui-radius, 12px)',
+                  border: '1px solid #e5e7eb', background: '#f9fafb',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
+                }}>
+                  {themeIcon ? (
+                    <img src={themeIcon} alt="Icon preview" style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} />
+                  ) : (
+                    <img src={DEFAULT_ICON_URL} alt="Default Joe Vandal icon" style={{ maxWidth: '70%', maxHeight: '90%', objectFit: 'contain', opacity: 0.7 }} />
+                  )}
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <label style={{
+                    padding: '6px 12px', borderRadius: 'var(--ui-radius, 12px)',
+                    border: '1px solid #d1d5db', background: '#fff',
+                    fontSize: 12, fontWeight: 500, cursor: 'pointer', textAlign: 'center',
+                  }}>
+                    {themeIcon ? 'Replace' : 'Upload'}
+                    <input
+                      type="file"
+                      accept="image/png,image/jpeg,image/svg+xml,image/webp"
+                      onChange={e => handleIconFile(e.target.files?.[0] || null)}
+                      style={{ display: 'none' }}
+                    />
+                  </label>
+                  {themeIcon && (
+                    <button
+                      type="button"
+                      onClick={() => { setThemeIcon(''); setThemeIconError(null) }}
+                      style={{
+                        padding: '6px 12px', borderRadius: 'var(--ui-radius, 12px)',
+                        border: '1px solid #fee2e2', background: '#fff',
+                        color: '#b91c1c', fontSize: 12, fontWeight: 500, cursor: 'pointer',
+                      }}
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
+              </div>
+              <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 6 }}>
+                Small square mark shown beside the logo (header & chat) and as the browser-tab favicon. A square, transparent PNG works best. The default Joe Vandal mark shows only on un-branded deployments — once you set an organization name or logo, leave this blank to hide it, or upload your own.
+              </div>
+              {themeIconError && (
+                <div style={{ fontSize: 12, color: '#b91c1c', marginTop: 6 }}>{themeIconError}</div>
               )}
             </div>
           </div>
