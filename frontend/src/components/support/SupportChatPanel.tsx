@@ -14,6 +14,7 @@ import {
   Pencil,
   Plus,
   Send,
+  Upload,
   UserPlus,
   X,
 } from 'lucide-react'
@@ -21,6 +22,85 @@ import { useAuth } from '../../hooks/useAuth'
 import { useToast } from '../../contexts/ToastContext'
 import * as supportApi from '../../api/support'
 import type { SupportTicket, SupportTicketSummary } from '../../types/support'
+
+const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024
+
+// Drag-and-drop file handling for the support panel.
+//
+// The app installs a global drop guard on `document` (see App.tsx) that cancels
+// any OS file drop landing outside a real drop zone. The support panel is also
+// rendered through a portal to document.body, so it sits outside the React root.
+// Both facts mean React synthetic onDrop handlers are unreliable here: to claim a
+// drop we must attach NATIVE listeners on the zone element and stopPropagation so
+// the event never bubbles up to the global guard. This hook wires that up.
+function useFileDropZone(
+  ref: React.RefObject<HTMLElement | null>,
+  onFiles: (files: File[]) => void,
+) {
+  const [dragOver, setDragOver] = useState(false)
+  const depth = useRef(0)
+
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const hasFiles = (e: DragEvent) => !!e.dataTransfer?.types.includes('Files')
+
+    const onDragEnter = (e: DragEvent) => {
+      if (!hasFiles(e)) return
+      e.preventDefault()
+      e.stopPropagation()
+      depth.current++
+      setDragOver(true)
+    }
+    const onDragOver = (e: DragEvent) => {
+      if (!hasFiles(e)) return
+      e.preventDefault()
+      e.stopPropagation()
+      if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'
+    }
+    const onDragLeave = (e: DragEvent) => {
+      if (!hasFiles(e)) return
+      e.preventDefault()
+      e.stopPropagation()
+      depth.current--
+      if (depth.current <= 0) {
+        depth.current = 0
+        setDragOver(false)
+      }
+    }
+    const onDrop = (e: DragEvent) => {
+      if (!hasFiles(e)) return
+      e.preventDefault()
+      e.stopPropagation()
+      depth.current = 0
+      setDragOver(false)
+      if (e.dataTransfer) onFiles(Array.from(e.dataTransfer.files))
+    }
+
+    el.addEventListener('dragenter', onDragEnter)
+    el.addEventListener('dragover', onDragOver)
+    el.addEventListener('dragleave', onDragLeave)
+    el.addEventListener('drop', onDrop)
+    return () => {
+      el.removeEventListener('dragenter', onDragEnter)
+      el.removeEventListener('dragover', onDragOver)
+      el.removeEventListener('dragleave', onDragLeave)
+      el.removeEventListener('drop', onDrop)
+    }
+  }, [ref, onFiles])
+
+  return dragOver
+}
+
+function DropOverlay({ show }: { show: boolean }) {
+  if (!show) return null
+  return (
+    <div className="pointer-events-none absolute inset-0 z-50 m-2 flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-blue-400 bg-blue-50/90">
+      <Upload className="h-7 w-7 text-blue-500" />
+      <p className="text-sm font-medium text-blue-600">Drop files to attach</p>
+    </div>
+  )
+}
 
 function timeAgo(dateStr: string | null): string {
   if (!dateStr) return ''
@@ -224,22 +304,27 @@ function NewTicketView({
   const [files, setFiles] = useState<File[]>([])
   const [submitting, setSubmitting] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const dropZoneRef = useRef<HTMLDivElement>(null)
   const { toast } = useToast()
 
-  const MAX_BYTES = 10 * 1024 * 1024
-
-  const handleFilesPicked = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const picked = Array.from(e.target.files ?? [])
-    if (fileInputRef.current) fileInputRef.current.value = ''
+  const acceptFiles = useCallback((picked: File[]) => {
     const accepted: File[] = []
     for (const f of picked) {
-      if (f.size > MAX_BYTES) {
+      if (f.size > MAX_ATTACHMENT_BYTES) {
         toast(`${f.name} is over 10MB`, 'error')
         continue
       }
       accepted.push(f)
     }
     if (accepted.length) setFiles((prev) => [...prev, ...accepted])
+  }, [toast])
+
+  const dragOver = useFileDropZone(dropZoneRef, acceptFiles)
+
+  const handleFilesPicked = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const picked = Array.from(e.target.files ?? [])
+    if (fileInputRef.current) fileInputRef.current.value = ''
+    acceptFiles(picked)
   }
 
   const removeFile = (idx: number) => {
@@ -268,7 +353,8 @@ function NewTicketView({
   }
 
   return (
-    <div className="flex flex-1 flex-col overflow-hidden">
+    <div ref={dropZoneRef} className="relative flex flex-1 flex-col overflow-hidden">
+      <DropOverlay show={dragOver} />
       <div className="flex items-center gap-2 border-b px-4 py-2">
         <button onClick={onBack} className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600">
           <ArrowLeft className="h-4 w-4" />
@@ -463,6 +549,7 @@ function ChatView({
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const messageRef = useRef<HTMLTextAreaElement>(null)
+  const dropZoneRef = useRef<HTMLDivElement>(null)
 
   // Auto-grow the reply textarea to fit its content (up to a max height).
   useEffect(() => {
@@ -523,14 +610,12 @@ function ChatView({
     }
   }
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const picked = Array.from(e.target.files ?? [])
-    if (fileInputRef.current) fileInputRef.current.value = ''
+  const uploadFiles = useCallback(async (picked: File[]) => {
     if (picked.length === 0) return
     const accepted: File[] = []
     for (const f of picked) {
       const sizeMB = (f.size / (1024 * 1024)).toFixed(1)
-      if (f.size > 10 * 1024 * 1024) {
+      if (f.size > MAX_ATTACHMENT_BYTES) {
         toast(`${f.name} is ${sizeMB}MB. Must be under 10MB.`, 'error')
         continue
       }
@@ -554,6 +639,14 @@ function ChatView({
       const msg = err instanceof Error ? err.message : 'Upload failed'
       toast(`Failed to upload file: ${msg}`, 'error')
     }
+  }, [ticketUuid, toast])
+
+  const dragOver = useFileDropZone(dropZoneRef, uploadFiles)
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const picked = Array.from(e.target.files ?? [])
+    if (fileInputRef.current) fileInputRef.current.value = ''
+    uploadFiles(picked)
   }
 
   const handleDeleteAttachment = async (attachmentUuid: string, filename: string) => {
@@ -628,7 +721,8 @@ function ChatView({
   const StatusIcon = ticket.status === 'closed' ? CheckCircle2 : ticket.status === 'in_progress' ? Clock : Circle
 
   return (
-    <div className="flex flex-1 flex-col overflow-hidden">
+    <div ref={dropZoneRef} className="relative flex flex-1 flex-col overflow-hidden">
+      <DropOverlay show={dragOver} />
       {/* Chat header */}
       <div className="border-b px-4 py-2">
         <div className="flex items-center gap-2">
