@@ -287,12 +287,16 @@ def execute_workflow_task(self, workflow_result_id, workflow_id, trigger_step_da
                 # Pre-load doc texts for extraction and prompt nodes
                 doc_uuids = list(trigger_step_data.get("doc_uuids", []))
 
-                # Merge fixed documents from workflow input_config
-                fixed_doc_config = (workflow_doc.get("input_config") or {}).get("fixed_documents", [])
-                for fd in fixed_doc_config:
-                    fd_uuid = fd.get("uuid") if isinstance(fd, dict) else str(fd)
-                    if fd_uuid and fd_uuid not in doc_uuids:
-                        doc_uuids.append(fd_uuid)
+                # Merge fixed documents from workflow input_config — except in
+                # "no input" mode, where the workflow runs with no documents at
+                # all (leftover fixed docs from a prior mode must not leak in).
+                input_cfg = workflow_doc.get("input_config") or {}
+                if input_cfg.get("trigger_type") != "no_input":
+                    fixed_doc_config = input_cfg.get("fixed_documents", [])
+                    for fd in fixed_doc_config:
+                        fd_uuid = fd.get("uuid") if isinstance(fd, dict) else str(fd)
+                        if fd_uuid and fd_uuid not in doc_uuids:
+                            doc_uuids.append(fd_uuid)
 
                 if doc_uuids:
                     doc_texts = []

@@ -426,12 +426,21 @@ export function WorkflowEditorPanel() {
   }
 
   const isTextInput = workflow?.input_config?.trigger_type === 'text_input'
+  const isNoInput = workflow?.input_config?.trigger_type === 'no_input'
+  // Whether the run is blocked for lack of required input. "No input"
+  // workflows never require input; text needs non-empty text; otherwise a doc.
+  const missingInput = isNoInput ? false : isTextInput ? !textInput.trim() : selectedDocUuids.length === 0
 
   const handleRun = async () => {
     if (!openWorkflowId) return
 
     try {
-      if (isTextInput) {
+      if (isNoInput) {
+        // Run with no documents and no text — the steps generate/fetch their
+        // own content (e.g. API calls, KB queries, static prompts).
+        setActiveTab('design')
+        await runner.start(openWorkflowId, [], undefined, false)
+      } else if (isTextInput) {
         if (!textInput.trim()) return
         // Convert text to temp document, then combine with any selected docs
         const { document_uuids: textUuids } = await createTempDocuments(openWorkflowId, [
@@ -855,10 +864,16 @@ export function WorkflowEditorPanel() {
             </label>
           )
         )}
-        {!isTextInput && selectedDocUuids.length === 0 && (
+        {!isTextInput && !isNoInput && selectedDocUuids.length === 0 && (
           <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 4 }}>
             <FileText style={{ width: 12, height: 12 }} />
             Select a document to run this workflow
+          </div>
+        )}
+        {isNoInput && (
+          <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 4 }}>
+            <Play style={{ width: 12, height: 12 }} />
+            No input required — runs directly
           </div>
         )}
         {runner.running && !runner.batchId ? (
@@ -892,15 +907,15 @@ export function WorkflowEditorPanel() {
         ) : (
           <button
             onClick={handleRun}
-            disabled={runner.running || (isTextInput ? !textInput.trim() : selectedDocUuids.length === 0)}
+            disabled={runner.running || missingInput}
             title={runner.running && runner.batchId ? 'Stop is not yet available for batch runs' : undefined}
             style={{
               width: '100%', padding: '12px 16px', fontSize: 14, fontWeight: 700,
               fontFamily: 'inherit', borderRadius: 'var(--ui-radius, 8px)', border: 'none',
               backgroundColor: 'var(--highlight-color, #eab308)',
               color: 'var(--highlight-text-color, #000)',
-              cursor: runner.running || (isTextInput ? !textInput.trim() : selectedDocUuids.length === 0) ? 'not-allowed' : 'pointer',
-              opacity: (isTextInput ? !textInput.trim() : selectedDocUuids.length === 0) && !runner.running ? 0.5 : 1,
+              cursor: runner.running || missingInput ? 'not-allowed' : 'pointer',
+              opacity: missingInput && !runner.running ? 0.5 : 1,
               textTransform: 'uppercase', letterSpacing: '0.05em',
               display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
             }}
@@ -1103,7 +1118,17 @@ function DesignCanvas({
         borderRadius: 'var(--ui-radius, 8px)', padding: 15, textAlign: 'center',
         boxShadow: '0 6px 18px rgba(0,0,0,0.05)',
       }}>
-        {workflow.input_config?.trigger_type === 'text_input' ? (
+        {workflow.input_config?.trigger_type === 'no_input' ? (
+          <>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+              <Play style={{ width: 16, height: 16, color: 'var(--highlight-color, #eab308)' }} />
+              <span style={{ fontWeight: 600, fontSize: 14 }}>No Input</span>
+            </div>
+            <div style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>
+              Runs directly without documents or text
+            </div>
+          </>
+        ) : workflow.input_config?.trigger_type === 'text_input' ? (
           <>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
               <Type style={{ width: 16, height: 16, color: 'var(--highlight-color, #eab308)' }} />
@@ -4887,6 +4912,7 @@ function InputTab({ workflow, openWorkflowId, onRefresh }: {
           >
             <option value="manual">Manual (Select Documents)</option>
             <option value="text_input">Text Input</option>
+            <option value="no_input">No Input (Run Directly)</option>
           </select>
         </div>
 
@@ -4939,6 +4965,22 @@ function InputTab({ workflow, openWorkflowId, onRefresh }: {
               />
             </div>
           </>
+        )}
+
+        {/* No Input */}
+        {triggerType === 'no_input' && (
+          <div style={{
+            border: '1px solid #e5e7eb', borderRadius: 8, padding: 16, backgroundColor: '#fafafa',
+          }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 4 }}>
+              No Input
+            </div>
+            <div style={{ fontSize: 12, color: '#6b7280' }}>
+              The workflow runs with no documents or text. Use this for steps that
+              generate or fetch their own content — API calls, knowledge-base
+              queries, or static prompts. Just press Run.
+            </div>
+          </div>
         )}
 
       </div>
