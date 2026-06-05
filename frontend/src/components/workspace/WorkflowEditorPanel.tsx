@@ -4799,6 +4799,7 @@ function InputTab({ workflow, openWorkflowId, onRefresh }: {
   openWorkflowId: string | null
   onRefresh: () => void
 }) {
+  const { toast } = useToast()
   const inputCfg = (workflow as unknown as Record<string, unknown>)?.input_config as Record<string, unknown> | undefined
   const [triggerType, setTriggerType] = useState((inputCfg?.trigger_type as string) || 'manual')
   const [saving, setSaving] = useState(false)
@@ -4806,10 +4807,13 @@ function InputTab({ workflow, openWorkflowId, onRefresh }: {
     () => ((inputCfg?.fixed_documents as { uuid: string; title: string }[]) || [])
   )
 
-  // Keep fixedDocs in sync when workflow refreshes from outside
+  // Keep local UI in sync with the persisted config when the workflow
+  // refreshes — both after a successful save and when a rejected save leaves
+  // the server value standing (so the dropdown can't lie about what's saved).
   useEffect(() => {
     const cfg = (workflow as unknown as Record<string, unknown>)?.input_config as Record<string, unknown> | undefined
     setFixedDocs((cfg?.fixed_documents as { uuid: string; title: string }[]) || [])
+    setTriggerType((cfg?.trigger_type as string) || 'manual')
   }, [workflow])
 
   const persistInputConfig = async (patch: Record<string, unknown>) => {
@@ -4820,10 +4824,22 @@ function InputTab({ workflow, openWorkflowId, onRefresh }: {
   }
 
   const handleTriggerChange = async (value: string) => {
-    setTriggerType(value)
+    const previous = triggerType
+    setTriggerType(value)  // optimistic — refresh() reconciles on success
     setSaving(true)
     try {
       await persistInputConfig({ trigger_type: value })
+    } catch (err) {
+      // Roll the dropdown back so it reflects what's actually saved, and say
+      // why. The usual cause is editing a verified/shared workflow you don't
+      // have manage rights on — duplicate it first to get an editable copy.
+      setTriggerType(previous)
+      toast(
+        err instanceof Error && err.message
+          ? err.message
+          : "Couldn't change the input type — you may not have permission to edit this workflow. Duplicate it to make an editable copy.",
+        'error',
+      )
     } finally {
       setSaving(false)
     }
