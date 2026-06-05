@@ -45,6 +45,7 @@ export function LibraryItemDetails({ item, onClose, onRemove }: Props) {
           extraction: undefined,
           automation: undefined,
           kb: undefined,
+          project: undefined,
           workflow_share_token: undefined,
         },
       })
@@ -58,6 +59,7 @@ export function LibraryItemDetails({ item, onClose, onRemove }: Props) {
           extraction: item.item_id,
           automation: undefined,
           kb: undefined,
+          project: undefined,
           workflow_share_token: undefined,
         },
       })

@@ -14,6 +14,7 @@ import { useWorkspace } from '../../contexts/WorkspaceContext'
 import { useToast } from '../../contexts/ToastContext'
 import { useAuth } from '../../hooks/useAuth'
 import { useShareLink } from '../../lib/shareLink'
+import { getProjectDocuments } from '../../api/projects'
 import {
   getWorkflow, addStep, deleteStep, addTask, deleteTask, updateTask,
   updateWorkflow, updateStep, downloadResults, testStep, getTestStepStatus,
@@ -200,7 +201,7 @@ export function WorkflowEditorPanel() {
   const { toast } = useToast()
   const { user } = useAuth()
   const shareLink = useShareLink()
-  const { openWorkflowId, openWorkflowShareToken, openWorkflow, closeWorkflow, consumeWorkflowSession, selectedDocUuids, bumpActivitySignal } = useWorkspace()
+  const { openWorkflowId, openWorkflowShareToken, openWorkflow, closeWorkflow, consumeWorkflowSession, selectedDocUuids, bumpActivitySignal, activeProjectUuid } = useWorkspace()
   const [workflow, setWorkflow] = useState<Workflow | null>(null)
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState<Tab>('design')
@@ -441,8 +442,16 @@ export function WorkflowEditorPanel() {
         setActiveTab('design')
         await runner.start(openWorkflowId, allUuids, undefined, false)
       } else {
-        const uuids = selectedDocUuids.length > 0 ? selectedDocUuids : []
-        if (uuids.length === 0) return
+        // Default to the whole project when nothing is explicitly selected.
+        let uuids = selectedDocUuids
+        if (uuids.length === 0) {
+          if (!activeProjectUuid) return
+          uuids = (await getProjectDocuments(activeProjectUuid)).document_uuids
+          if (uuids.length === 0) {
+            toast('No files in this project to run on yet', 'info')
+            return
+          }
+        }
         setActiveTab('design')
         await runner.start(openWorkflowId, uuids, undefined, batchMode)
       }
@@ -858,7 +867,7 @@ export function WorkflowEditorPanel() {
         {!isTextInput && selectedDocUuids.length === 0 && (
           <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 4 }}>
             <FileText style={{ width: 12, height: 12 }} />
-            Select a document to run this workflow
+            {activeProjectUuid ? 'Will run on all files in this project' : 'Select a document to run this workflow'}
           </div>
         )}
         {runner.running && !runner.batchId ? (
@@ -892,15 +901,15 @@ export function WorkflowEditorPanel() {
         ) : (
           <button
             onClick={handleRun}
-            disabled={runner.running || (isTextInput ? !textInput.trim() : selectedDocUuids.length === 0)}
+            disabled={runner.running || (isTextInput ? !textInput.trim() : (selectedDocUuids.length === 0 && !activeProjectUuid))}
             title={runner.running && runner.batchId ? 'Stop is not yet available for batch runs' : undefined}
             style={{
               width: '100%', padding: '12px 16px', fontSize: 14, fontWeight: 700,
               fontFamily: 'inherit', borderRadius: 'var(--ui-radius, 8px)', border: 'none',
               backgroundColor: 'var(--highlight-color, #eab308)',
               color: 'var(--highlight-text-color, #000)',
-              cursor: runner.running || (isTextInput ? !textInput.trim() : selectedDocUuids.length === 0) ? 'not-allowed' : 'pointer',
-              opacity: (isTextInput ? !textInput.trim() : selectedDocUuids.length === 0) && !runner.running ? 0.5 : 1,
+              cursor: runner.running || (isTextInput ? !textInput.trim() : (selectedDocUuids.length === 0 && !activeProjectUuid)) ? 'not-allowed' : 'pointer',
+              opacity: (isTextInput ? !textInput.trim() : (selectedDocUuids.length === 0 && !activeProjectUuid)) && !runner.running ? 0.5 : 1,
               textTransform: 'uppercase', letterSpacing: '0.05em',
               display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
             }}

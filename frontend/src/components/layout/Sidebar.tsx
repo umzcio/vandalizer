@@ -1,4 +1,4 @@
-import { BookOpen, ClipboardCheck, Cloud, FileText, Globe, KeyRound, MessageSquare, Shield, Users, Workflow, Zap } from 'lucide-react'
+import { BookOpen, ClipboardCheck, Cloud, FileText, FolderKanban, Globe, KeyRound, MessageSquare, Shield, Users, Workflow, Zap } from 'lucide-react'
 import { Link, useRouterState } from '@tanstack/react-router'
 import { cn } from '../../lib/cn'
 import { useAuth } from '../../hooks/useAuth'
@@ -17,6 +17,7 @@ export function Sidebar() {
 
   const links = [
     { href: '/', label: 'Documents', icon: FileText },
+    { href: '/projects', label: 'Projects', icon: FolderKanban },
     { href: '/chat', label: 'Chat', icon: MessageSquare },
     { href: '/library', label: 'Library', icon: BookOpen },
     { href: '/workflows', label: 'Workflows', icon: Workflow },
