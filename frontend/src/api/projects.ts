@@ -6,6 +6,7 @@ import type {
   ProjectMember,
   ProjectInviteLink,
   ProjectInviteInfo,
+  ProjectPin,
 } from '../types/project'
 
 export function listProjects() {
@@ -43,6 +44,24 @@ export function deleteProject(uuid: string) {
 
 export function shareProjectWithTeam(uuid: string) {
   return apiFetch<Project>(`/api/projects/${uuid}/share-with-team`, { method: 'POST' })
+}
+
+// --- Pins ---
+
+export function listProjectPins(uuid: string) {
+  return apiFetch<ProjectPin[]>(`/api/projects/${uuid}/pins`)
+}
+
+export function addProjectPin(uuid: string, data: { pin_type: string; target_id: string }) {
+  return apiFetch<{ ok: boolean }>(`/api/projects/${uuid}/pins`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  })
+}
+
+export function removeProjectPin(uuid: string, pinType: string, targetId: string) {
+  const qs = new URLSearchParams({ pin_type: pinType, target_id: targetId }).toString()
+  return apiFetch<{ ok: boolean }>(`/api/projects/${uuid}/pins?${qs}`, { method: 'DELETE' })
 }
 
 // --- Sharing ---

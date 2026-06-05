@@ -372,6 +372,88 @@ async def share_project_with_team(project: Project, user: User) -> Project:
     return project
 
 
+async def add_pin(project: Project, pin_type: str, target_id: str, user: User) -> None:
+    """Pin an existing artifact (workflow/extraction/automation/KB) to a project.
+
+    A pin is a reference for quick access — it never moves or copies the artifact.
+    """
+    from app.models.project import PIN_TYPES
+
+    if not await can_manage_project(project, user):
+        raise ValueError("Not allowed")
+    if pin_type not in PIN_TYPES:
+        raise ValueError("Invalid pin type")
+    existing = await ProjectPin.find_one(
+        ProjectPin.project_uuid == project.uuid,
+        ProjectPin.pin_type == pin_type,
+        ProjectPin.target_id == target_id,
+    )
+    if existing:
+        return
+    await ProjectPin(
+        project_uuid=project.uuid,
+        pin_type=pin_type,
+        target_id=target_id,
+        created_by=user.user_id,
+    ).insert()
+
+
+async def remove_pin(project: Project, pin_type: str, target_id: str, user: User) -> None:
+    if not await can_manage_project(project, user):
+        raise ValueError("Not allowed")
+    await ProjectPin.find(
+        ProjectPin.project_uuid == project.uuid,
+        ProjectPin.pin_type == pin_type,
+        ProjectPin.target_id == target_id,
+    ).delete()
+
+
+async def _resolve_pin_name(pin: ProjectPin) -> str | None:
+    """The display name of a pin's target, or None if it no longer exists."""
+    from beanie import PydanticObjectId
+
+    if pin.pin_type == "workflow":
+        from app.models.workflow import Workflow
+        try:
+            wf = await Workflow.get(PydanticObjectId(pin.target_id))
+        except Exception:
+            wf = None
+        return wf.name if wf else None
+    if pin.pin_type == "extraction":
+        from app.models.search_set import SearchSet
+        ss = await SearchSet.find_one(SearchSet.uuid == pin.target_id)
+        return ss.title if ss else None
+    if pin.pin_type == "automation":
+        from app.models.automation import Automation
+        try:
+            auto = await Automation.get(PydanticObjectId(pin.target_id))
+        except Exception:
+            auto = None
+        return auto.name if auto else None
+    if pin.pin_type == "knowledge_base":
+        from app.models.knowledge import KnowledgeBase
+        kb = await KnowledgeBase.find_one(KnowledgeBase.uuid == pin.target_id)
+        return kb.title if kb else None
+    return None
+
+
+async def list_pins(project: Project) -> list[dict]:
+    pins = await ProjectPin.find(
+        ProjectPin.project_uuid == project.uuid
+    ).to_list()
+    result = []
+    for pin in pins:
+        name = await _resolve_pin_name(pin)
+        if name is None:
+            continue  # target was deleted — skip stale pin
+        result.append({
+            "pin_type": pin.pin_type,
+            "target_id": pin.target_id,
+            "name": name,
+        })
+    return result
+
+
 async def get_project_document_uuids(project: Project) -> list[str]:
     """All (non-deleted) document uuids in the project's folder subtree.
 

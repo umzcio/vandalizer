@@ -413,7 +413,16 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
           const requestedMode = project.role === 'viewer' ? 'chat' : (search.mode ?? 'chat')
           localStorage.setItem('workspace:mode', requestedMode)
           navigate({
-            search: () => ({ ...emptyWorkspaceSearch(), mode: requestedMode === 'chat' ? undefined : requestedMode, project: undefined }),
+            // Preserve any editor param so a pinned tool (e.g. ?project=X&workflow=Y)
+            // opens inside the scoped project rather than being wiped.
+            search: () => ({
+              ...emptyWorkspaceSearch(),
+              mode: requestedMode === 'chat' ? undefined : requestedMode,
+              workflow: project.role === 'viewer' ? undefined : search.workflow,
+              extraction: project.role === 'viewer' ? undefined : search.extraction,
+              automation: project.role === 'viewer' ? undefined : search.automation,
+              project: undefined,
+            }),
             replace: true,
           })
         })

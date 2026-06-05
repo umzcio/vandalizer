@@ -61,6 +61,12 @@ export interface ProjectInviteLink {
   created_at: string | null
 }
 
+export interface ProjectPin {
+  pin_type: string // workflow | extraction | automation | knowledge_base
+  target_id: string
+  name: string
+}
+
 export interface ProjectInviteInfo {
   role: string
   project_title: string

@@ -18,6 +18,7 @@ import { useCallback, useEffect, useState, type ComponentType } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { PageLayout } from '../components/layout/PageLayout'
 import { ProjectStateBadge } from '../components/projects/ProjectStateBadge'
+import { ProjectPinsSection } from '../components/projects/ProjectPinsSection'
 import { useProject } from '../hooks/useProjects'
 import { useAuth } from '../hooks/useAuth'
 import { useTeams } from '../hooks/useTeams'
@@ -404,6 +405,14 @@ export default function ProjectDetail() {
             )
           })}
         </div>
+
+        {/* Pinned tools — quick access to the workflows/extractions for this project */}
+        {canManage && (
+          <ProjectPinsSection
+            projectUuid={project.uuid}
+            onChange={() => qc.invalidateQueries({ queryKey: ['project', uuid] })}
+          />
+        )}
 
         {/* Share — invite PIs to view & chat with the project (read-only) */}
         {canManage && (

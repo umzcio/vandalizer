@@ -49,6 +49,52 @@ async def get_project(
     return await project_service.get_project_overview(project, user)
 
 
+class PinRequest(BaseModel):
+    pin_type: str
+    target_id: str
+
+
+@router.get("/{project_uuid}/pins")
+async def list_pins(project_uuid: str, user: User = Depends(get_current_user)):
+    project = await project_service.get_authorized_project(project_uuid, user)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return await project_service.list_pins(project)
+
+
+@router.post("/{project_uuid}/pins")
+async def add_pin(
+    project_uuid: str,
+    body: PinRequest,
+    user: User = Depends(get_current_user),
+):
+    project = await project_service.get_authorized_project(project_uuid, user)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    try:
+        await project_service.add_pin(project, body.pin_type, body.target_id, user)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"ok": True}
+
+
+@router.delete("/{project_uuid}/pins")
+async def remove_pin(
+    project_uuid: str,
+    pin_type: str,
+    target_id: str,
+    user: User = Depends(get_current_user),
+):
+    project = await project_service.get_authorized_project(project_uuid, user)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    try:
+        await project_service.remove_pin(project, pin_type, target_id, user)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"ok": True}
+
+
 @router.get("/{project_uuid}/documents")
 async def get_project_documents(
     project_uuid: str,
