@@ -2703,7 +2703,7 @@ function TaskEditModal({ task, selectedDocUuids, workflow, workflowId, onClose, 
                   Format Template
                 </label>
                 <textarea
-                  value={getTextValue('format_template')}
+                  value={getTextValue('format_template') || getTextValue('prompt')}
                   onChange={e => setTextValue('format_template', e.target.value)}
                   placeholder="Enter your format template..."
                   rows={10}
