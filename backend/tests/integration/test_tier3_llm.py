@@ -348,8 +348,8 @@ class TestExtractionJudgeCalibration:
 # ---------------------------------------------------------------------------
 # 6. Workflow judge calibration vs human labels
 #
-# Mirrors TestExtractionJudgeCalibration but for the per-check_type workflow
-# judge rubric in workflow_validator._CHECK_EVALUATION_PROMPTS. Fixture at
+# Mirrors TestExtractionJudgeCalibration but for the unified workflow judge
+# in workflow_service._evaluate_checks_against_output. Fixture at
 # tests/fixtures/workflow_judge_calibration.json carries human-labeled
 # (check, output, gold_verdict) triples across the six check_types.
 #
@@ -359,7 +359,7 @@ class TestExtractionJudgeCalibration:
 
 
 class TestWorkflowJudgeCalibration:
-    """Run the per-check_type workflow judge against a human-labeled calibration set.
+    """Run the unified workflow judge against a human-labeled calibration set.
 
     Asserts Cohen's κ vs human ≥ 0.55 (moderate agreement on Landis-Koch) and
     PASS-vs-FAIL accuracy ≥ 0.70. Per-check_type κ is reported (not gated)."""
@@ -399,49 +399,54 @@ class TestWorkflowJudgeCalibration:
         return (p_obs - p_exp) / (1.0 - p_exp)
 
     def test_workflow_judge_calibration_vs_human(self):
+        import asyncio
         import os
-        from concurrent.futures import ThreadPoolExecutor
+        from unittest.mock import AsyncMock, MagicMock, patch
 
-        from pydantic_ai import Agent
-        from app.services.llm_service import get_agent_model
-        from app.services.workflow_validator import (
-            _system_prompt_for_check_type,
-            _extract_json,
-            _parse_verdict,
-        )
+        from app.services.workflow_service import _evaluate_checks_against_output
 
-        # Tier-3 tests run outside the full app lifecycle — pre-load the model
-        # via env-var system_config_doc rather than MongoDB.
+        # Tier-3 tests run outside the full app lifecycle. The production judge
+        # resolves its model name and system config from MongoDB; inject the
+        # env-var config doc in their place so the real judge_fn runs unchanged.
         sys_cfg = _system_config_doc()
-        os.environ.setdefault("INTEGRATION_LLM_SYSCFG_PRELOADED", "1")
+        cfg_stub = MagicMock()
+        cfg_stub.model_dump.return_value = sys_cfg
 
         cases = self._load_calibration_cases()
-        model = get_agent_model(_llm_model(), system_config_doc=sys_cfg)
+        sem = asyncio.Semaphore(8)
 
-        def _judge_one(case: dict) -> str:
-            agent = Agent(
-                model,
-                system_prompt=_system_prompt_for_check_type(case["check_type"]),
-                model_settings={"temperature": 0.0},
-            )
-            prompt = (
-                f"Check to evaluate:\n"
-                f"  Type: {case['check_type']}\n"
-                f"  Description: {case['description']}\n"
-            )
+        async def _judge_one(case: dict) -> str:
+            # The unified judge scores a whole check set in one call, so wrap
+            # each calibration case as a single-check plan and read its status.
+            description = case["description"]
             if case.get("target_field"):
-                prompt += f"  Target field: {case['target_field']}\n"
-            prompt += f"\nWorkflow output to evaluate:\n---\n{case['workflow_output']}\n---"
-            try:
-                result = agent.run_sync(prompt)
-                raw = _extract_json(result.output)
-                verdict = _parse_verdict(raw)
-                return self._normalize_verdict(verdict["status"])
-            except Exception:
-                return "FAIL"
+                description += f" (target field: {case['target_field']})"
+            plan = [{
+                "id": "c1",
+                "name": case.get("check_type", "check"),
+                "description": description,
+            }]
+            async with sem:
+                try:
+                    results = await _evaluate_checks_against_output(
+                        plan, case["workflow_output"], {}, {"user_id": ""}
+                    )
+                except Exception:
+                    return "FAIL"
+            status = results[0]["status"] if results else "FAIL"
+            return self._normalize_verdict(status)
 
-        with ThreadPoolExecutor(max_workers=8) as pool:
-            judge_verdicts = list(pool.map(_judge_one, cases))
+        async def _run_all() -> list[str]:
+            return await asyncio.gather(*[_judge_one(c) for c in cases])
+
+        with patch(
+            "app.services.workflow_service.get_user_model_name",
+            AsyncMock(return_value=_llm_model()),
+        ), patch(
+            "app.models.system_config.SystemConfig.get_config",
+            AsyncMock(return_value=cfg_stub),
+        ):
+            judge_verdicts = asyncio.run(_run_all())
 
         gold_verdicts = [c["gold_verdict"] for c in cases]
         agree = sum(1 for a, b in zip(gold_verdicts, judge_verdicts) if a == b)
