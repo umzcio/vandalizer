@@ -135,6 +135,10 @@ class ValidationCheckDefinition(BaseModel):
     # per-step quality breakdown in the validate response. Auto-generated
     # plans now always populate this; older plans may omit it.
     target_step: Optional[str] = None
+    # "auto" (LLM-generated) or "manual" (user-authored). Regenerating the
+    # plan replaces auto checks but preserves manual ones. Older checks omit
+    # this and are treated as auto.
+    source: Optional[str] = None
 
 
 class UpdateValidationPlanRequest(BaseModel):
@@ -143,6 +147,12 @@ class UpdateValidationPlanRequest(BaseModel):
 
 class ValidationPlanResponse(BaseModel):
     checks: list[ValidationCheckDefinition]
+    # Stale-plan detection: true when the workflow definition changed since
+    # the plan was generated/saved, or when checks target steps that no
+    # longer exist. PUT/generate responses always return fresh (False).
+    plan_stale: bool = False
+    stale_reasons: list[str] = []  # "definition_changed" | "orphaned_checks"
+    orphaned_check_ids: list[str] = []
 
 
 # ---------------------------------------------------------------------------
@@ -211,3 +221,6 @@ class ValidateWorkflowResponse(BaseModel):
     judge_variance: Optional[float] = None
     # Static + runtime deterministic diagnostics (new).
     static_diagnostics: list[StaticDiagnostic] = []
+    # True when this run was graded against a plan that no longer matches the
+    # workflow definition — the grade card renders a regenerate caveat.
+    plan_stale: bool = False

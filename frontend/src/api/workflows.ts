@@ -301,10 +301,20 @@ export interface ValidationCheckDefinition {
   // Step the check is primarily about — drives the per-step breakdown.
   // Auto-generated plans always populate this now; older plans may omit it.
   target_step?: string
+  // "auto" (LLM-generated) or "manual" (user-authored). Regenerating the
+  // plan replaces auto checks but preserves manual ones. Older checks omit
+  // this and are treated as auto.
+  source?: 'auto' | 'manual'
 }
 
 export interface ValidationPlanResponse {
   checks: ValidationCheckDefinition[]
+  // Stale-plan detection: true when the workflow definition changed since the
+  // plan was generated/saved, or when checks target steps that no longer
+  // exist. PUT/generate responses always come back fresh (false).
+  plan_stale?: boolean
+  stale_reasons?: string[] // 'definition_changed' | 'orphaned_checks'
+  orphaned_check_ids?: string[]
 }
 
 export function getValidationPlan(workflowId: string) {
@@ -420,6 +430,10 @@ export interface ValidationResult {
     target_step?: string | null
     details?: Record<string, unknown>
   }>
+  // True when this run was graded against a plan that no longer matches the
+  // workflow definition — the grade card renders a regenerate caveat so a
+  // low grade isn't mistaken for a bad workflow.
+  plan_stale?: boolean
 }
 
 export function validateWorkflow(workflowId: string) {

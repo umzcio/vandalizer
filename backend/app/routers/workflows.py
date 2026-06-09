@@ -1379,8 +1379,8 @@ async def get_workflow_quality_status(
 @router.get("/{workflow_id}/validation-plan", response_model=ValidationPlanResponse)
 async def get_validation_plan(workflow_id: str, user: User = Depends(get_current_user)):
     try:
-        checks = await svc.get_validation_plan(workflow_id, user=user)
-        return ValidationPlanResponse(checks=checks)
+        plan_info = await svc.get_validation_plan(workflow_id, user=user)
+        return ValidationPlanResponse(**plan_info)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 

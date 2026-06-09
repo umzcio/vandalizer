@@ -28,6 +28,7 @@ import {
   improvePrompt,
 } from '../../api/workflows'
 import { RunHistoryTab } from './RunHistoryTab'
+import { StalePlanBanner } from './StalePlanBanner'
 import { WorkflowAutovalidatePanel } from './WorkflowAutovalidatePanel'
 import type { ValidationCheck, ValidationCheckDefinition, ValidationInputDefinition, QualityHistoryRun, BatchStatus, WorkflowQualityStatus, PromptImprovement } from '../../api/workflows'
 import { ItemPickerModal } from './ItemPickerModal'
@@ -5382,6 +5383,15 @@ function ValidateTab({
   const [planLoading, setPlanLoading] = useState(false)
   const [generating, setGenerating] = useState(false)
 
+  // Stale-plan detection: the plan was generated against an older version of
+  // the workflow (definition hash drift) or has checks targeting steps that
+  // no longer exist. Saving or regenerating the plan clears it.
+  const [planStale, setPlanStale] = useState(false)
+  const [orphanedCheckIds, setOrphanedCheckIds] = useState<string[]>([])
+  const [confirmingPlanFresh, setConfirmingPlanFresh] = useState(false)
+  // Whether the most recent validation run was graded against a stale plan.
+  const [resultPlanStale, setResultPlanStale] = useState(false)
+
   // Plan editing state
   const [editingIdx, setEditingIdx] = useState<number | null>(null)
   const [editName, setEditName] = useState('')
@@ -5507,7 +5517,14 @@ function ValidateTab({
     if (!workflowId) return
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
     saveTimerRef.current = setTimeout(() => {
-      updateValidationPlan(workflowId, updatedChecks).catch(() => {})
+      updateValidationPlan(workflowId, updatedChecks)
+        .then(() => {
+          // Saving the plan blesses the current workflow definition on the
+          // backend, so any stale warning no longer applies.
+          setPlanStale(false)
+          setOrphanedCheckIds([])
+        })
+        .catch(() => {})
     }, 800)
   }, [workflowId])
 
@@ -5528,6 +5545,8 @@ function ValidateTab({
     getValidationPlan(workflowId)
       .then(r => {
         setPlanChecks(r.checks)
+        setPlanStale(r.plan_stale ?? false)
+        setOrphanedCheckIds(r.orphaned_check_ids ?? [])
         // Auto-generate plan if empty (zero-friction onboarding)
         if (r.checks.length === 0) {
           setGenerating(true)
@@ -5655,15 +5674,39 @@ function ValidateTab({
 
   const handleGenerate = async () => {
     if (!workflowId) return
+    // Regeneration replaces auto-generated checks; checks the user added by
+    // hand are preserved by the backend. Confirm so that's not a surprise.
+    const manualCount = planChecks.filter(c => c.source === 'manual').length
+    if (manualCount > 0 && !window.confirm(
+      `Regenerate plan? Your ${manualCount} custom check${manualCount === 1 ? '' : 's'} will be kept; the auto-generated checks will be replaced.`,
+    )) return
     setGenerating(true)
     setError(null)
     try {
       const res = await generateValidationPlan(workflowId)
       setPlanChecks(res.checks)
+      setPlanStale(false)
+      setOrphanedCheckIds([])
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to generate plan')
     } finally {
       setGenerating(false)
+    }
+  }
+
+  // "Plan is still correct" — re-saves the plan unchanged, which re-stamps
+  // the definition hash on the backend (blessing the current workflow).
+  const handleConfirmPlanFresh = async () => {
+    if (!workflowId) return
+    setConfirmingPlanFresh(true)
+    try {
+      await updateValidationPlan(workflowId, planChecks)
+      setPlanStale(false)
+      setOrphanedCheckIds([])
+    } catch {
+      toast('Could not update the plan — please try again', 'error')
+    } finally {
+      setConfirmingPlanFresh(false)
     }
   }
 
@@ -5699,6 +5742,7 @@ function ValidateTab({
       )
       setStepBreakdown(res.step_breakdown ?? [])
       setStaticDiagnostics(res.static_diagnostics ?? [])
+      setResultPlanStale(res.plan_stale ?? false)
       getWorkflowQualityHistory(workflowId)
         .then(r => setQualityHistory(r.runs))
         .catch(() => {})
@@ -5804,6 +5848,7 @@ function ValidateTab({
       )
       setStepBreakdown(res.step_breakdown ?? [])
       setStaticDiagnostics(res.static_diagnostics ?? [])
+      setResultPlanStale(res.plan_stale ?? false)
       getWorkflowQualityHistory(workflowId)
         .then(r => setQualityHistory(r.runs))
         .catch(() => {})
@@ -5916,7 +5961,7 @@ function ValidateTab({
   const handleAddPlanCheck = () => {
     if (!newName.trim()) return
     const id = crypto.randomUUID?.() || Math.random().toString(36).slice(2)
-    const updated = [...planChecks, { id, name: newName.trim(), description: newDesc.trim(), category: newCategory }]
+    const updated = [...planChecks, { id, name: newName.trim(), description: newDesc.trim(), category: newCategory, source: 'manual' as const }]
     setNewName('')
     setNewDesc('')
     setNewCategory('content')
@@ -6208,7 +6253,7 @@ function ValidateTab({
                 Quality checks evaluated against the workflow's actual output.
               </div>
             </div>
-            {planChecks.length > 0 && (
+            {planChecks.length > 0 && canManage && (
               <button
                 onClick={handleGenerate}
                 disabled={generating}
@@ -6224,6 +6269,17 @@ function ValidateTab({
               </button>
             )}
           </div>
+
+          {planStale && !planLoading && !generating && planChecks.length > 0 && (
+            <StalePlanBanner
+              orphanedCount={orphanedCheckIds.length}
+              canManage={canManage}
+              generating={generating}
+              confirming={confirmingPlanFresh}
+              onRegenerate={handleGenerate}
+              onConfirmFresh={handleConfirmPlanFresh}
+            />
+          )}
 
           {planLoading ? (
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: 16, justifyContent: 'center' }}>
@@ -6316,7 +6372,21 @@ function ValidateTab({
                         </div>
                       ) : (
                         <>
-                          <div style={{ fontSize: 13, fontWeight: 500, color: '#202124' }}>{check.name}</div>
+                          <div style={{ fontSize: 13, fontWeight: 500, color: '#202124', display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{check.name}</span>
+                            {orphanedCheckIds.includes(check.id) && (
+                              <span
+                                style={{
+                                  fontSize: 9, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase',
+                                  padding: '1px 6px', borderRadius: 4,
+                                  backgroundColor: '#fef3c7', color: '#92400e', flexShrink: 0, whiteSpace: 'nowrap',
+                                }}
+                                title={`This check targets the step "${check.target_step}", which no longer exists in the workflow. It will SKIP during validation — regenerate the plan or edit the check.`}
+                              >
+                                step no longer exists
+                              </span>
+                            )}
+                          </div>
                           {check.description && (
                             <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>{check.description}</div>
                           )}
@@ -6579,6 +6649,18 @@ function ValidateTab({
                 <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 4, lineHeight: 1.4 }}>
                   A <TermDef term="judge" theme="light">judge</TermDef> compared each step's output to your expected answers. Lower grade = more checks failed or scored low.
                 </div>
+                {resultPlanStale && (
+                  <div
+                    data-testid="stale-grade-caveat"
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 5, marginTop: 6,
+                      fontSize: 11, fontWeight: 600, color: '#92400e',
+                    }}
+                  >
+                    <AlertTriangle style={{ width: 12, height: 12, color: '#d97706', flexShrink: 0 }} />
+                    Graded against a stale plan — regenerate the plan above before trusting this grade.
+                  </div>
+                )}
               </div>
               {gradeInfo.variancePts != null && (
                 <div style={{

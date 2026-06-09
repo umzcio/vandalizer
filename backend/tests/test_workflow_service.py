@@ -32,6 +32,8 @@ def _make_workflow(name="Test WF", user_id="user1", team_id=None, space=None, st
     wf.num_executions = 0
     wf.input_config = {}
     wf.validation_plan = []
+    wf.validation_plan_definition_hash = None
+    wf.validation_plan_updated_at = None
     wf.validation_inputs = []
     wf.updated_at = datetime.datetime.now(tz=datetime.timezone.utc)
     wf.save = AsyncMock()
@@ -264,28 +266,35 @@ class TestReorderSteps:
 # ---------------------------------------------------------------------------
 
 class TestValidationPlan:
+    @patch("app.services.workflow_service.get_workflow", new_callable=AsyncMock)
     @patch("app.services.workflow_service.get_authorized_workflow")
-    async def test_get_plan(self, mock_auth):
+    async def test_get_plan(self, mock_auth, mock_get_wf):
         from app.services.workflow_service import get_validation_plan
 
         wf = _make_workflow()
         wf.validation_plan = [{"id": "c1", "name": "Check 1", "category": "completeness"}]
         mock_auth.return_value = wf
+        mock_get_wf.return_value = {"steps": [], "output_config": {}}
 
         result = await get_validation_plan(str(wf.id), _make_user())
-        assert len(result) == 1
-        assert result[0]["name"] == "Check 1"
+        assert len(result["checks"]) == 1
+        assert result["checks"][0]["name"] == "Check 1"
+        assert result["plan_stale"] is False
 
+    @patch("app.services.workflow_service.get_workflow", new_callable=AsyncMock)
     @patch("app.services.workflow_service.get_authorized_workflow")
-    async def test_update_plan(self, mock_auth):
+    async def test_update_plan(self, mock_auth, mock_get_wf):
         from app.services.workflow_service import update_validation_plan
 
         wf = _make_workflow()
         mock_auth.return_value = wf
+        mock_get_wf.return_value = {"steps": [], "output_config": {}}
 
         new_checks = [{"id": "c1", "name": "New Check", "category": "accuracy"}]
         result = await update_validation_plan(str(wf.id), new_checks, _make_user())
         assert wf.validation_plan == new_checks
+        assert wf.validation_plan_definition_hash is not None
+        assert wf.validation_plan_updated_at is not None
         wf.save.assert_awaited_once()
 
     @patch("app.services.workflow_service.get_authorized_workflow")

@@ -845,20 +845,111 @@ async def reorder_steps(workflow_id: str, step_ids: list[str], user: User) -> bo
 # Validation Plan
 # ---------------------------------------------------------------------------
 
-async def get_validation_plan(workflow_id: str, user: User) -> list[dict]:
-    """Return the workflow's persisted validation plan."""
+def compute_workflow_definition_hash(wf_data: dict | None) -> str:
+    """Deterministic hash of the parts of a workflow that a validation plan depends on.
+
+    Covers step names (checks' target_step references them), task names and
+    data (prompts, extraction field definitions), is_output, and output_config.
+    Deliberately excludes ids, the validation plan itself, validation inputs,
+    metadata, and optimizer config_override (revertible runtime config, not
+    authored definition).
+    """
+    from app.services.quality_service import compute_config_hash
+
+    canonical = {
+        "steps": [
+            {
+                "name": s.get("name", ""),
+                "is_output": bool(s.get("is_output", False)),
+                "tasks": [
+                    {"name": t.get("name", ""), "data": t.get("data", {})}
+                    for t in s.get("tasks", [])
+                ],
+            }
+            for s in (wf_data or {}).get("steps", [])
+        ],
+        "output_config": (wf_data or {}).get("output_config", {}),
+    }
+    return compute_config_hash(canonical)
+
+
+def _plan_staleness(
+    plan: list[dict],
+    stored_hash: str | None,
+    wf_data: dict | None,
+) -> tuple[bool, list[str], list[str]]:
+    """Return (plan_stale, stale_reasons, orphaned_check_ids) for *plan*.
+
+    Two independent signals:
+    - "definition_changed": the stored definition hash no longer matches the
+      current workflow definition (only computable when a hash was stamped).
+    - "orphaned_checks": a check's target_step matches no current step name —
+      catches plans that went stale before hash stamping existed.
+    """
+    if not plan:
+        return False, [], []
+
+    step_names = {
+        str(s.get("name", "")).strip().lower()
+        for s in (wf_data or {}).get("steps", [])
+    }
+    orphaned = [
+        str(c.get("id", ""))
+        for c in plan
+        if str(c.get("target_step", "") or "").strip()
+        and str(c["target_step"]).strip().lower() not in step_names
+    ]
+
+    reasons: list[str] = []
+    if orphaned:
+        reasons.append("orphaned_checks")
+    if stored_hash and stored_hash != compute_workflow_definition_hash(wf_data):
+        reasons.append("definition_changed")
+    return bool(reasons), reasons, orphaned
+
+
+async def get_validation_plan(workflow_id: str, user: User) -> dict:
+    """Return the workflow's persisted validation plan plus staleness info."""
     wf = await get_authorized_workflow(workflow_id, user)
     if not wf:
         raise ValueError("Workflow not found")
-    return wf.validation_plan
+
+    plan = wf.validation_plan
+    wf_data = await get_workflow(workflow_id)
+    stale, reasons, orphaned = _plan_staleness(
+        plan, wf.validation_plan_definition_hash, wf_data,
+    )
+
+    # Lazy bless: plans written before hash stamping existed have no stored
+    # hash, so definition drift is undetectable. If the structural signal is
+    # also clean (no orphaned checks), stamp the current definition so future
+    # edits are detected. Deliberately does not bump updated_at — this is a
+    # read, not an authored change.
+    if plan and not wf.validation_plan_definition_hash and not orphaned:
+        wf.validation_plan_definition_hash = compute_workflow_definition_hash(wf_data)
+        await wf.save()
+
+    return {
+        "checks": plan,
+        "plan_stale": stale,
+        "stale_reasons": reasons,
+        "orphaned_check_ids": orphaned,
+    }
 
 
 async def update_validation_plan(workflow_id: str, checks: list[dict], user: User) -> list[dict]:
-    """Replace the workflow's validation plan with *checks*."""
+    """Replace the workflow's validation plan with *checks*.
+
+    A manual plan save means the user is looking at the current workflow, so
+    it also re-stamps the definition hash (blessing the current definition).
+    """
     wf = await get_authorized_workflow(workflow_id, user, manage=True)
     if not wf:
         raise ValueError("Workflow not found")
+    wf_data = await get_workflow(workflow_id)
     wf.validation_plan = checks
+    wf.validation_plan_definition_hash = compute_workflow_definition_hash(wf_data)
+    wf.validation_plan_updated_at = datetime.datetime.now(tz=datetime.timezone.utc)
     wf.updated_at = datetime.datetime.now(tz=datetime.timezone.utc)
     await wf.save()
     return wf.validation_plan
@@ -1508,6 +1599,7 @@ async def generate_validation_plan(workflow_id: str, user: User) -> list[dict]:
             "description": str(item.get("description", "")),
             "category": cat,
             "target_step": target_step,
+            "source": "auto",
         })
 
     # ── Meta-check filter ──
@@ -1518,14 +1610,38 @@ async def generate_validation_plan(workflow_id: str, user: User) -> list[dict]:
     # silently drop everything).
     checks = await _filter_unselective_checks(checks, intents, user_id=wf_data.get("user_id", ""))
 
-    # Persist
+    # Persist. Regeneration replaces auto-generated checks but carries over
+    # user-authored ones.
     wf = await Workflow.get(PydanticObjectId(workflow_id))
     if wf:
+        checks = _merge_manual_checks(wf.validation_plan or [], checks, norm_lookup)
         wf.validation_plan = checks
+        wf.validation_plan_definition_hash = compute_workflow_definition_hash(wf_data)
+        wf.validation_plan_updated_at = datetime.datetime.now(tz=datetime.timezone.utc)
         wf.updated_at = datetime.datetime.now(tz=datetime.timezone.utc)
         await wf.save()
 
     return checks
+
+
+def _merge_manual_checks(
+    existing_plan: list[dict],
+    generated_checks: list[dict],
+    norm_lookup: dict[str, str],
+) -> list[dict]:
+    """Combine freshly generated checks with user-authored ones from the old plan.
+
+    Manual checks (source == "manual") survive regeneration; their target_step
+    is re-mapped through the current step names so a case/whitespace drift
+    doesn't orphan them. Checks with no source predate the field and are
+    treated as auto (replaced).
+    """
+    manual_checks = [c for c in existing_plan if c.get("source") == "manual"]
+    for c in manual_checks:
+        raw = str(c.get("target_step", "") or "").strip()
+        if raw:
+            c["target_step"] = norm_lookup.get(raw.lower(), raw)
+    return generated_checks + manual_checks
 
 
 async def _filter_unselective_checks(
@@ -2250,6 +2366,13 @@ async def validate_workflow(workflow_id: str, user: User | None = None) -> dict:
 
     wf_data = await get_workflow(workflow_id)
 
+    # Flag runs graded against a stale plan — the grade card renders a caveat
+    # so a low grade caused by orphaned/drifted checks isn't mistaken for a
+    # bad workflow.
+    plan_stale, _, _ = _plan_staleness(
+        plan, wf.validation_plan_definition_hash, wf_data,
+    )
+
     # Find the last N completed WorkflowResults for consistency measurement
     num_runs = min(3, await WorkflowResult.find(
         WorkflowResult.workflow == wf.id,
@@ -2287,6 +2410,7 @@ async def validate_workflow(workflow_id: str, user: User | None = None) -> dict:
             checks, workflow_id, wf_data, num_runs=0,
             output_comparison=None, stability_data=None,
             static_diagnostics=static_diagnostics,
+            plan_stale=plan_stale,
         )
 
     # Compute output-to-output stability (compares actual outputs across runs)
@@ -2357,6 +2481,7 @@ async def validate_workflow(workflow_id: str, user: User | None = None) -> dict:
         judge_variance=judge_variance,
         per_step_variance=per_step_variance,
         static_diagnostics=static_diagnostics,
+        plan_stale=plan_stale,
     )
 
 
@@ -2797,6 +2922,7 @@ async def _build_result(
     judge_variance: float | None = None,
     per_step_variance: dict[str, float] | None = None,
     static_diagnostics: list[dict] | None = None,
+    plan_stale: bool = False,
 ) -> dict:
     """Compute separate quality / stability scores, combined score, grade, and persist."""
     statuses = [c["status"] for c in checks]
@@ -2920,6 +3046,7 @@ async def _build_result(
         "step_breakdown": step_breakdown,
         "judge_variance": judge_variance,
         "static_diagnostics": static_diagnostics or [],
+        "plan_stale": plan_stale,
     }
 
     from app.services.quality_service import persist_validation_run
