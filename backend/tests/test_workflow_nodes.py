@@ -1338,21 +1338,146 @@ class TestKnowledgeBaseQueryNode:
         node = KnowledgeBaseQueryNode({"kb_uuid": "", "query": "test"})
         result = node.process({"output": "prev"})
         assert result["output"] == ""
+        assert "no knowledge base selected" in result["warning"]
 
     def test_empty_query(self):
         node = KnowledgeBaseQueryNode({"kb_uuid": "kb-123", "query": ""})
         result = node.process({"output": "prev"})
         assert result["output"] == ""
+        assert "query is empty" in result["warning"]
 
     @patch("app.services.document_manager.DocumentManager")
     def test_no_results(self, mock_dm_cls):
+        """An empty result set surfaces a warning and an explicit output
+        message instead of silently feeding "" to the next step."""
         mock_dm = MagicMock()
         mock_dm.query_kb.return_value = []
         mock_dm_cls.return_value = mock_dm
 
         node = KnowledgeBaseQueryNode({"kb_uuid": "kb-123", "query": "obscure"})
         result = node.process({"output": "prev"})
-        assert result["output"] == ""
+        assert "no matching passages" in result["output"]
+        assert "obscure" in result["warning"]
+
+    @patch("app.services.document_manager.DocumentManager")
+    def test_passages_output_has_framing_header(self, mock_dm_cls):
+        """Downstream LLM steps are told the chunks are partial retrieval
+        excerpts, mirroring the framing the chat RAG path uses."""
+        mock_dm = MagicMock()
+        mock_dm.query_kb.return_value = [
+            {"content": "Chunk text", "metadata": {"source_name": "doc.pdf"}},
+        ]
+        mock_dm_cls.return_value = mock_dm
+
+        node = KnowledgeBaseQueryNode({"kb_uuid": "kb-1", "query": "anything"})
+        result = node.process({"output": "prev"})
+        assert "partial excerpts" in result["output"]
+        assert "Chunk text" in result["output"]
+
+    @patch("app.services.document_manager.DocumentManager")
+    def test_templated_query_uses_previous_output(self, mock_dm_cls):
+        mock_dm = MagicMock()
+        mock_dm.query_kb.return_value = []
+        mock_dm_cls.return_value = mock_dm
+
+        node = KnowledgeBaseQueryNode({
+            "kb_uuid": "kb-1",
+            "query": "policies for {{ inputs.output }}",
+        })
+        node.process({"output": "NSF", "step_name": "Extraction"})
+
+        mock_dm.query_kb.assert_called_once_with("kb-1", "policies for NSF", k=8)
+
+    def test_template_error_surfaces_warning(self):
+        node = KnowledgeBaseQueryNode({
+            "kb_uuid": "kb-1",
+            "query": "{{ inputs.output.missing_key }}",
+        })
+        result = node.process({"output": {"other": 1}, "step_name": "Prompt"})
+        assert result["warning"]
+        assert result["output"] == result["warning"]
+
+    @patch("app.services.document_manager.DocumentManager")
+    def test_min_similarity_filters_low_relevance_chunks(self, mock_dm_cls):
+        mock_dm = MagicMock()
+        mock_dm.query_kb.return_value = [
+            {"content": "Relevant", "metadata": {"source_name": "a.pdf"}, "similarity": 0.8},
+            {"content": "Junk", "metadata": {"source_name": "b.pdf"}, "similarity": 0.05},
+        ]
+        mock_dm_cls.return_value = mock_dm
+
+        node = KnowledgeBaseQueryNode({
+            "kb_uuid": "kb-1", "query": "q", "min_similarity": "0.3",
+        })
+        result = node.process({"output": "prev"})
+        assert "Relevant" in result["output"]
+        assert "Junk" not in result["output"]
+        assert len(result["retrieved_sources"]) == 1
+
+    @patch("app.services.document_manager.DocumentManager")
+    def test_min_similarity_filtering_everything_warns(self, mock_dm_cls):
+        mock_dm = MagicMock()
+        mock_dm.query_kb.return_value = [
+            {"content": "Junk", "metadata": {"source_name": "b.pdf"}, "similarity": 0.05},
+        ]
+        mock_dm_cls.return_value = mock_dm
+
+        node = KnowledgeBaseQueryNode({
+            "kb_uuid": "kb-1", "query": "q", "min_similarity": 0.5,
+        })
+        result = node.process({"output": "prev"})
+        assert "no matching passages" in result["warning"]
+
+    @patch("app.services.document_manager.DocumentManager")
+    def test_query_error_soft_fails_with_warning(self, mock_dm_cls):
+        """A retrieval failure becomes a visible warning, not a dead workflow."""
+        mock_dm = MagicMock()
+        mock_dm.query_kb.side_effect = RuntimeError("chroma down")
+        mock_dm_cls.return_value = mock_dm
+
+        node = KnowledgeBaseQueryNode({"kb_uuid": "kb-1", "query": "q"})
+        result = node.process({"output": "prev"})
+        assert "chroma down" in result["warning"]
+        assert "chroma down" in result["output"]
+
+    @patch("app.services.workflow_engine.llm_chat_model")
+    @patch("app.services.document_manager.DocumentManager")
+    def test_answer_mode_synthesizes_grounded_answer(self, mock_dm_cls, mock_llm):
+        mock_dm = MagicMock()
+        mock_dm.query_kb.return_value = [
+            {"content": "Cost share is 50%", "metadata": {"source_name": "PAPPG.pdf", "page": 234}},
+        ]
+        mock_dm_cls.return_value = mock_dm
+        mock_llm.return_value = "Cost share is 50% [PAPPG.pdf · p. 234]"
+
+        node = KnowledgeBaseQueryNode({
+            "kb_uuid": "kb-1",
+            "query": "What is the cost share?",
+            "mode": "answer",
+            "model": "gpt-4o",
+        })
+        result = node.process({"output": "prev"})
+
+        assert result["output"] == "Cost share is 50% [PAPPG.pdf · p. 234]"
+        # Citations still flow even when the output is a synthesized answer.
+        assert result["retrieved_sources"][0]["document_title"] == "PAPPG.pdf"
+        call = mock_llm.call_args
+        assert call.kwargs["model"] == "gpt-4o"
+        assert "QUESTION:\nWhat is the cost share?" in call.kwargs["prompt"]
+        assert "Cost share is 50%" in call.kwargs["data"]
+
+    @patch("app.services.workflow_engine.llm_chat_model")
+    @patch("app.services.document_manager.DocumentManager")
+    def test_passages_mode_makes_no_llm_call(self, mock_dm_cls, mock_llm):
+        mock_dm = MagicMock()
+        mock_dm.query_kb.return_value = [
+            {"content": "Chunk", "metadata": {"source_name": "a.pdf"}},
+        ]
+        mock_dm_cls.return_value = mock_dm
+
+        node = KnowledgeBaseQueryNode({"kb_uuid": "kb-1", "query": "q"})
+        node.process({"output": "prev"})
+        mock_llm.assert_not_called()
 
     @patch("app.services.document_manager.DocumentManager")
     def test_emits_retrieved_sources_with_page_and_score(self, mock_dm_cls):

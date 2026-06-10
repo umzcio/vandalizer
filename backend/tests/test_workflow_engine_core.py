@@ -356,6 +356,32 @@ class TestMultiTaskNode:
         result = multi.process({"output": "prev"})
         assert result["output"] == "good"
 
+    def test_retrieved_sources_and_warning_propagate(self):
+        """Citations and warnings emitted by a wrapped task (e.g. a KB query)
+        must survive MultiTaskNode aggregation so the engine can persist them."""
+        multi = MultiTaskNode("KB Step")
+
+        class CitingNode(Node):
+            def process(self, inputs):
+                return {
+                    "output": "passages",
+                    "step_name": "KnowledgeBaseQuery",
+                    "retrieved_sources": [{"document_title": "a.pdf"}],
+                }
+
+        class WarningNode(Node):
+            def process(self, inputs):
+                return {"output": None, "step_name": "KnowledgeBaseQuery",
+                        "warning": "no matching passages"}
+
+        multi.add_task(CitingNode("citing"))
+        multi.add_task(WarningNode("warning"))
+        result = multi.process({"output": "prev"})
+
+        assert result["retrieved_sources"] == [{"document_title": "a.pdf"}]
+        assert "no matching passages" in result["warning"]
+        assert result["output"] == "passages"
+
     def test_inputs_deepcopied(self):
         """Each task gets its own copy of inputs."""
         multi = MultiTaskNode("Test Step")
