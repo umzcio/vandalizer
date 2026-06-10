@@ -2705,8 +2705,25 @@ function ValidateTab({
 
   return (
     <div style={{ padding: 24, display: 'flex', flexDirection: 'column', gap: 20 }}>
-      {/* 1. Test cases — the shared input to tuning + detailed validation. Kept
-          on top so the auto-tune flow below always has something to score. */}
+      <div>
+        <div style={{ fontSize: 14, fontWeight: 600, color: '#202124', marginBottom: 4 }}>
+          Validate & Improve
+        </div>
+        <div style={{ fontSize: 12, color: '#6b7280', lineHeight: 1.5 }}>
+          One click scores this extraction against your test cases and tries better settings.
+          The sections below hold the test data and per-field diagnostics.
+        </div>
+      </div>
+
+      {/* Validate & improve (autovalidate) — THE validation flow and the single
+          scoring surface. Apply writes the certified ValidationRun / quality tile. */}
+      <ExtractionAutovalidatePanel
+        searchSetUuid={searchSetUuid}
+        canManage={true}
+        onApplied={() => { onValidationComplete?.(); void reloadQualityHistory() }}
+      />
+
+      {/* Test cases — the shared input to tuning + detailed validation. */}
       <div>
         <div
           style={{
@@ -3049,14 +3066,6 @@ function ValidateTab({
         )}
       </div>
 
-      {/* Tune this extraction (autovalidate optimizer) — the single scoring
-          surface. Apply writes the certified ValidationRun / quality tile. */}
-      <ExtractionAutovalidatePanel
-        searchSetUuid={searchSetUuid}
-        canManage={true}
-        onApplied={() => { onValidationComplete?.(); void reloadQualityHistory() }}
-      />
-
       {/* Cross-field rules — feed into the optimizer's fitness function */}
       <CrossFieldRulesSection
         searchSetUuid={searchSetUuid}
@@ -3073,7 +3082,7 @@ function ValidateTab({
         </div>
         <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 12 }}>
           Run the test cases as-is and inspect expected vs. extracted values per source and field.
-          For the official score and tuning, use “Tune this extraction” above.
+          For the official score, use “Validate & improve” at the top.
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <label style={{ fontSize: 13, color: '#5f6368' }}>Replicates:</label>
