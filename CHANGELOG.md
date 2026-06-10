@@ -71,6 +71,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Invite acceptance can only promote, never demote** an existing membership (see Fixed), closing a silent privilege-drop.
 
 ### Operator Notes
+- **This release carries verified-catalog v1.1.0** (11 new items, 8 refreshed, 10 retired — a full sync to the maintainers' curated catalog). After upgrading, `./setup.sh --upgrade` / `--seed` (or Admin → Catalog) previews the 10 retirements (6 KBs, 4 extraction templates) and asks before soft-archiving them; declining keeps them and applies an additive-only update. Retirement is reversible and never touches items your users created or verified themselves.
 - **This tag supersedes the unpublished v4.5.0.** No v4.5.0 images exist on GHCR; upgrade 4.4.0 → 4.6.0 directly. The v4.5.0 git tag has been removed.
 - **`nofile` ulimits raised** in `compose.yaml` for api and celery: 8192 → 65536 (companion to the FD-leak fixes). Like the memory-limit change below, this requires recreating the containers: `docker compose up -d api celery` (or `./setup.sh --redeploy`).
 - **Backend dependency ranges widened** (Dependabot): `aiosmtplib` <6, `redis` <9, `prometheus-fastapi-instrumentator` <9; `uv.lock` regenerated to match. Docker builds pick this up automatically.
