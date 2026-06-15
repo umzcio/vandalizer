@@ -743,3 +743,74 @@ async def test_notify_terminal_falls_back_to_default_title_when_kb_missing():
     assert "Knowledge base" in captured["title"]
     # Link still points to the correct KB UUID.
     assert "kb=kb-1" in captured["link"]
+
+
+# ---------------------------------------------------------------------------
+# _ensure_test_queries — Test-set build mode (existing / generate / combine)
+# ---------------------------------------------------------------------------
+
+
+def _make_tq(uuid: str, *, expected_answer: str | None = "ans"):
+    q = MagicMock()
+    q.uuid = uuid
+    q.query = f"Q {uuid}?"
+    q.expected_answer = expected_answer
+    return q
+
+
+@pytest.mark.asyncio
+async def test_ensure_test_queries_uses_explicit_uuid_selection():
+    """When the wizard passes test_query_uuids, only those are graded — the
+    authoritative path that lets 'generate only' exclude pre-existing saved
+    questions and 'combine' mix a curated set."""
+    run_doc = _make_run_doc(options={"test_query_uuids": ["a", "b"]})
+    chosen = [_make_tq("a"), _make_tq("b")]
+    find_obj = MagicMock()
+    find_obj.to_list = AsyncMock(return_value=chosen)
+    gen = MagicMock()
+    gen.generate = AsyncMock()
+
+    with patch.object(kb_optimizer, "KBTestQuery") as KBTQ, \
+         patch("app.services.kb_question_generator.KBQuestionGenerator", return_value=gen):
+        KBTQ.find = MagicMock(return_value=find_obj)
+        out = await KBOptimizer()._ensure_test_queries("kb-1", "u1", run_doc)
+
+    assert [q.uuid for q in out] == ["a", "b"]
+    # Curated set is authoritative — never falls through to auto-generation.
+    gen.generate.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_ensure_test_queries_explicit_selection_drops_unanswered():
+    """Selected questions without an expected_answer can't be judged, so they
+    are filtered out of the eval set."""
+    run_doc = _make_run_doc(options={"test_query_uuids": ["a", "b"]})
+    chosen = [_make_tq("a"), _make_tq("b", expected_answer=None)]
+    find_obj = MagicMock()
+    find_obj.to_list = AsyncMock(return_value=chosen)
+
+    with patch.object(kb_optimizer, "KBTestQuery") as KBTQ:
+        KBTQ.find = MagicMock(return_value=find_obj)
+        out = await KBOptimizer()._ensure_test_queries("kb-1", "u1", run_doc)
+
+    assert [q.uuid for q in out] == ["a"]
+
+
+@pytest.mark.asyncio
+async def test_ensure_test_queries_falls_back_to_existing_when_no_uuids():
+    """Without an explicit selection (older clients / passive re-runs) the
+    legacy behaviour stands: use all saved questions, no generation."""
+    run_doc = _make_run_doc(options={})
+    existing = [_make_tq("x"), _make_tq("y")]
+    find_obj = MagicMock()
+    find_obj.to_list = AsyncMock(return_value=existing)
+    gen = MagicMock()
+    gen.generate = AsyncMock()
+
+    with patch.object(kb_optimizer, "KBTestQuery") as KBTQ, \
+         patch("app.services.kb_question_generator.KBQuestionGenerator", return_value=gen):
+        KBTQ.find = MagicMock(return_value=find_obj)
+        out = await KBOptimizer()._ensure_test_queries("kb-1", "u1", run_doc)
+
+    assert [q.uuid for q in out] == ["x", "y"]
+    gen.generate.assert_not_called()

@@ -877,8 +877,30 @@ class KBOptimizer:
     async def _ensure_test_queries(
         self, kb_uuid: str, user_id: str, run_doc: KBOptimizationRun,
     ) -> list[KBTestQuery]:
-        """Load existing queries with expected_answer; if none, auto-generate
-        Standard coverage (UI's default flow already covers manual selection)."""
+        """Build the eval set for this run.
+
+        When the wizard passed an explicit reviewed set
+        (``options.test_query_uuids``) we grade against exactly those. That's
+        what makes the Test-set step's existing / generate / combine choice
+        authoritative — e.g. "generate only" must exclude pre-existing saved
+        questions even though they still live in the KB, and "combine" must mix
+        both. Falls back to "use all saved, else auto-generate Standard" for
+        callers that don't curate a set up front (passive re-runs, older clients).
+        """
+        opts = run_doc.options or {}
+        selected_uuids = opts.get("test_query_uuids") or []
+        if selected_uuids:
+            chosen = await KBTestQuery.find(
+                KBTestQuery.knowledge_base_uuid == kb_uuid,
+                {"uuid": {"$in": list(selected_uuids)}},
+            ).to_list()
+            with_answers = [q for q in chosen if getattr(q, "expected_answer", None)]
+            if with_answers:
+                return with_answers
+            # The curated set yielded nothing usable (all deleted, or none have
+            # an expected answer). Fall through to the legacy path rather than
+            # failing the run outright.
+
         existing = await KBTestQuery.find(
             KBTestQuery.knowledge_base_uuid == kb_uuid,
         ).to_list()
@@ -891,7 +913,7 @@ class KBOptimizer:
             progress_message="No test queries yet — generating one for evaluation…",
         )
         from app.services.kb_question_generator import KBQuestionGenerator
-        coverage = (run_doc.options or {}).get("autogen_coverage") or DEFAULT_AUTOGEN_COVERAGE
+        coverage = opts.get("autogen_coverage") or DEFAULT_AUTOGEN_COVERAGE
         created = await KBQuestionGenerator().generate(
             kb_uuid, user_id, coverage=coverage, persist=True,
         )
