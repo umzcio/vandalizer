@@ -469,13 +469,13 @@ export const MODULES: ModuleDefinition[] = [
       },
       {
         title: 'Running tasks in parallel',
-        content: 'Within a single step, you can add multiple tasks. These tasks run concurrently \u2014 the workflow engine uses a thread pool to execute them simultaneously.\n\nThis is useful when you need multiple independent operations:\n\u2022 Extract from two different Extractions at the same time\n\u2022 Call multiple APIs in parallel\n\u2022 Run an extraction while simultaneously fetching enrichment data from a website\n\nTo add parallel tasks, open a step in the workflow editor and click "Add Task" multiple times.',
+        content: 'Within a single step, you can add multiple tasks. These tasks run concurrently \u2014 the workflow engine starts them all at the same time and waits for them to finish together, instead of running them one after another.\n\nThis is useful when you need multiple independent operations:\n\u2022 Extract from two different Extractions at the same time\n\u2022 Call multiple APIs in parallel\n\u2022 Run an extraction while simultaneously fetching enrichment data from a website\n\nTo add parallel tasks, open a step in the workflow editor and click "Add Task" multiple times.',
         variant: 'concept',
         knowledgeCheck: {
           question: 'When you add multiple tasks to a single step, how do they run?',
           options: [
             { text: 'One at a time, in the order you added them', correct: false, explanation: 'Sequential execution would defeat the purpose of parallel tasks. Vandalizer runs them concurrently.' },
-            { text: 'Concurrently, using a thread pool', correct: true, explanation: 'Correct! Multiple tasks within a step run in parallel via a thread pool. Their results are collected and passed to the next step.' },
+            { text: 'Concurrently — they all run at the same time', correct: true, explanation: 'Correct! Multiple tasks within a step run in parallel — they all start at roughly the same time, and the step waits for them all to finish. Their results are collected and passed to the next step.' },
             { text: 'In a random order determined by server load', correct: false, explanation: 'Tasks run concurrently, not in a random order. All start at roughly the same time.' },
             { text: 'Only the first task runs; the rest are treated as fallbacks if it fails', correct: false, explanation: 'All tasks run. There\'s no fallback logic between tasks in a step.' },
           ],
