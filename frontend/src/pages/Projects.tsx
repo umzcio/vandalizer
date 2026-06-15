@@ -3,6 +3,7 @@ import { useNavigate } from '@tanstack/react-router'
 import { Plus, Search, FolderKanban, Users } from 'lucide-react'
 import { PageLayout } from '../components/layout/PageLayout'
 import { ProjectStateBadge } from '../components/projects/ProjectStateBadge'
+import { ProjectsExplainer } from '../components/projects/ProjectsExplainer'
 import { useProjects } from '../hooks/useProjects'
 
 export default function Projects() {
@@ -90,11 +91,13 @@ export default function Projects() {
         {loading ? (
           <div className="text-gray-500 text-sm">Loading...</div>
         ) : filtered.length === 0 ? (
-          <div className="text-gray-500 text-sm text-center py-12">
-            {search
-              ? 'No projects match your search.'
-              : 'No projects yet. Create one above to get started.'}
-          </div>
+          search ? (
+            <div className="text-gray-500 text-sm text-center py-12">
+              No projects match your search.
+            </div>
+          ) : (
+            <ProjectsExplainer />
+          )
         ) : (
           <div className="grid gap-3 sm:grid-cols-2">
             {filtered.map(p => (

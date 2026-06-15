@@ -3,6 +3,7 @@ import { useNavigate } from '@tanstack/react-router'
 import { Plus, FolderKanban } from 'lucide-react'
 import { useProjects } from '../../hooks/useProjects'
 import { ProjectStateBadge } from '../projects/ProjectStateBadge'
+import { ProjectsExplainer } from '../projects/ProjectsExplainer'
 
 /**
  * The Projects drawer — a slideout panel (like Automations/Knowledge) listing
@@ -73,9 +74,7 @@ export function ProjectsPanel() {
           {loading ? (
             <div className="text-sm text-gray-500">Loading...</div>
           ) : projects.length === 0 ? (
-            <div className="py-8 text-center text-sm text-gray-500">
-              No projects yet. Create one above.
-            </div>
+            <ProjectsExplainer />
           ) : (
             projects.map(p => (
               <button
