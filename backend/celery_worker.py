@@ -28,3 +28,5 @@ from app.tasks import classification_tasks  # noqa: F401  — tasks.document.cla
 from app.tasks import demo_tasks  # noqa: F401  — tasks.demo.*
 from app.tasks import approval_tasks  # noqa: F401  — tasks.approvals.*
 from app.tasks import catalog_tasks  # noqa: F401  — tasks.catalog.upgrade
+from app.tasks import engagement_tasks  # noqa: F401  — tasks.engagement.*
+from app.tasks import retention_tasks  # noqa: F401  — tasks.retention.*
