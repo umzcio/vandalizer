@@ -27,6 +27,7 @@ import { useConfirm } from '../components/shared/useConfirm'
 import {
   deleteProject,
   shareProjectWithTeam,
+  makeProjectPersonal,
   createProjectInviteLink,
   listProjectMembers,
   removeProjectMember,
@@ -212,6 +213,32 @@ export default function ProjectDetail() {
     }
   }
 
+  const handleMakePersonal = async () => {
+    const ok = await confirm({
+      title: 'Make project personal?',
+      message: (
+        <>
+          Stop sharing <strong>{project.title}</strong> with your team? Its files
+          and knowledge base return to you alone. Anyone invited by link keeps
+          their access.
+        </>
+      ),
+      confirmLabel: 'Make personal',
+    })
+    if (!ok) return
+    setSharing(true)
+    try {
+      await makeProjectPersonal(project.uuid)
+      qc.invalidateQueries({ queryKey: ['project', project.uuid] })
+      qc.invalidateQueries({ queryKey: ['projects'] })
+      toast('Project is now personal', 'success')
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Failed to make personal', 'error')
+    } finally {
+      setSharing(false)
+    }
+  }
+
   const handleDelete = async () => {
     const ok = await confirm({
       title: 'Delete project?',
@@ -319,9 +346,21 @@ export default function ProjectDetail() {
 
           <div className="flex shrink-0 items-center gap-2">
             {project.team_id ? (
-              <span className="inline-flex items-center gap-1 text-xs text-gray-500">
-                <Users size={13} /> Shared with team
-              </span>
+              isOwner ? (
+                <button
+                  onClick={handleMakePersonal}
+                  disabled={sharing}
+                  title="Stop sharing with your team"
+                  className="flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                >
+                  <Users size={15} />
+                  {sharing ? 'Updating…' : 'Shared with team · Make personal'}
+                </button>
+              ) : (
+                <span className="inline-flex items-center gap-1 text-xs text-gray-500">
+                  <Users size={13} /> Shared with team
+                </span>
+              )
             ) : isOwner && currentTeam ? (
               <button
                 onClick={handleShareWithTeam}

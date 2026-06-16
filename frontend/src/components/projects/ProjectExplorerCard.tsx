@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { MoreVertical, Pencil, Trash2, Settings2, Users, Check } from 'lucide-react'
+import { MoreVertical, Pencil, Trash2, Users, Check, ArrowUpRight } from 'lucide-react'
 import type { Project, ProjectState } from '../../types/project'
 import { PROJECT_STATES } from '../../types/project'
 import { ProjectStateBadge } from './ProjectStateBadge'
@@ -7,11 +7,13 @@ import { ProjectSummaryStats } from './ProjectSummaryStats'
 
 /**
  * A project card for the explorer (the /projects page). Clicking the body opens
- * the project; the ⋯ menu renames, changes status, opens the project home, or
- * deletes — so the explorer is a place you can manage projects, not just a list
- * that bounces you straight into the workspace.
+ * the project workspace; the "View details" button (shown to everyone) opens
+ * the project's detail page; the ⋯ menu renames, changes status, or deletes —
+ * so the explorer is a place you can manage projects, not just a list that
+ * bounces you straight into the workspace.
  *
- * `canManage` is owner-or-editor; viewers see a read-only card with no menu.
+ * `canManage` is owner-or-editor; viewers see a read-only card with no ⋯ menu,
+ * but still get "View details".
  */
 export function ProjectExplorerCard({
   project,
@@ -75,6 +77,15 @@ export function ProjectExplorerCard({
         )}
         <div className="flex shrink-0 items-center gap-1">
           <ProjectStateBadge state={project.state} />
+          <button
+            onClick={onOpenHome}
+            className="flex items-center gap-1 rounded px-1.5 py-1 text-xs font-medium text-gray-500 hover:bg-gray-100 hover:text-gray-700"
+            title="View project details"
+            aria-label="View project details"
+          >
+            Details
+            <ArrowUpRight size={14} />
+          </button>
           {canManage && (
             <button
               onClick={() => setMenuOpen(o => !o)}
@@ -115,12 +126,6 @@ export function ProjectExplorerCard({
               className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50"
             >
               <Pencil size={14} className="text-gray-400" /> Rename
-            </button>
-            <button
-              onClick={() => { setMenuOpen(false); onOpenHome() }}
-              className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50"
-            >
-              <Settings2 size={14} className="text-gray-400" /> Project settings
             </button>
             <div className="my-1 border-t border-gray-100" />
             <div className="px-3 pb-1 pt-1.5 text-[11px] font-medium uppercase tracking-wide text-gray-400">
