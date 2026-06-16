@@ -1723,6 +1723,7 @@ function WorkflowsTab() {
   const [page, setPage] = useState(1)
   const [status, setStatus] = useState<string>('')
   const [search, setSearch] = useState('')
+  const [searchInput, setSearchInput] = useState('')
   const [loading, setLoading] = useState(true)
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const searchDebounce = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
@@ -1735,6 +1736,7 @@ function WorkflowsTab() {
   useEffect(() => { load() }, [load])
 
   const handleSearchChange = (v: string) => {
+    setSearchInput(v)
     if (searchDebounce.current) clearTimeout(searchDebounce.current)
     searchDebounce.current = setTimeout(() => { setSearch(v); setPage(1) }, 400)
   }
@@ -1795,7 +1797,7 @@ function WorkflowsTab() {
           </button>
         ))}
         <div style={{ flex: 1 }} />
-        <SearchInput value="" onChange={handleSearchChange} placeholder="Search workflows..." />
+        <SearchInput value={searchInput} onChange={handleSearchChange} placeholder="Search workflows..." />
         <ExportButton onClick={handleExport} />
       </div>
 
