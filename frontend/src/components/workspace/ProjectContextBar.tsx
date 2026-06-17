@@ -40,7 +40,7 @@ export function ProjectContextBar({ onOpenManage }: { onOpenManage?: () => void 
           <button
             onClick={onOpenManage}
             title="View details, share, rename, leave, or delete this project"
-            style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'var(--highlight-color, #eab308)', border: 'none', borderRadius: 6, padding: '4px 10px', cursor: 'pointer', color: '#000', fontSize: 12, fontWeight: 600 }}
+            style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'var(--highlight-color, #eab308)', border: 'none', borderRadius: 6, padding: '4px 10px', cursor: 'pointer', color: 'var(--highlight-text-color, #000)', fontSize: 12, fontWeight: 600 }}
           >
             <Settings size={14} />
             Manage project

@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useNavigate, useSearch } from '@tanstack/react-router'
+import { useTeams } from '../hooks/useTeams'
 
 type RightTab = 'assistant' | 'library'
 export type WorkspaceMode = 'chat' | 'files' | 'automations' | 'knowledge' | 'projects'
@@ -149,6 +150,28 @@ function getStoredNumber(key: string, fallback: number): number {
   }
 }
 
+/** Read a free-form stored value (e.g. an active project/KB uuid). */
+function getStoredRaw(key: string): string | null {
+  try {
+    return localStorage.getItem(key)
+  } catch {
+    return null
+  }
+}
+
+/** Persist (or, with null, clear) a free-form stored value. */
+function setStoredRaw(key: string, value: string | null): void {
+  try {
+    if (value === null) localStorage.removeItem(key)
+    else localStorage.setItem(key, value)
+  } catch {
+    /* storage unavailable (private mode / quota) — scope just won't persist */
+  }
+}
+
+const PROJECT_STORAGE_KEY = 'workspace:project'
+const KB_STORAGE_KEY = 'workspace:kb'
+
 type WorkspaceSearchState = {
   mode: WorkspaceMode | undefined
   tab: RightTab | undefined
@@ -180,6 +203,7 @@ function emptyWorkspaceSearch(): WorkspaceSearchState {
 export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const navigate = useNavigate({ from: '/' })
   const search = useSearch({ from: '/' })
+  const { currentTeam } = useTeams()
 
   // ── URL-derived state ───────────────────────────────────────────────────
   const workspaceMode: WorkspaceMode =
@@ -306,8 +330,10 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     setLoadConversationId(null)
     setPendingChatMessage(null)
     setHighlightTerms([])
+    setStoredRaw(KB_STORAGE_KEY, null)
     setActiveKBUuid(null)
     setActiveKBTitle(null)
+    setStoredRaw(PROJECT_STORAGE_KEY, null)
     setActiveProjectUuid(null)
     setActiveProjectTitle(null)
     setActiveProjectRootFolder(null)
@@ -346,6 +372,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const activateKB = useCallback((uuid: string, title: string) => {
+    setStoredRaw(KB_STORAGE_KEY, uuid)
     setActiveKBUuid(uuid)
     setActiveKBTitle(title)
     setNewChatSignal(prev => prev + 1)
@@ -354,14 +381,20 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   }, [updateSearch])
 
   const deactivateKB = useCallback(() => {
+    setStoredRaw(KB_STORAGE_KEY, null)
     setActiveKBUuid(null)
     setActiveKBTitle(null)
   }, [])
 
   const activateProject = useCallback((uuid: string, title: string) => {
+    // Persist the scope so a reload re-enters the project (see rehydrate effect).
+    // We store only the uuid — title/role/root are re-fetched on rehydrate so a
+    // renamed or re-shared project never shows stale chrome.
+    setStoredRaw(PROJECT_STORAGE_KEY, uuid)
     setActiveProjectUuid(uuid)
     setActiveProjectTitle(title)
     // Entering a project starts a fresh, project-scoped chat.
+    setStoredRaw(KB_STORAGE_KEY, null)
     setActiveKBUuid(null)
     setActiveKBTitle(null)
     setNewChatSignal(prev => prev + 1)
@@ -370,6 +403,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   }, [updateSearch])
 
   const deactivateProject = useCallback(() => {
+    setStoredRaw(PROJECT_STORAGE_KEY, null)
     setActiveProjectUuid(null)
     setActiveProjectTitle(null)
     setActiveProjectRootFolder(null)
@@ -399,6 +433,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     import('../api/knowledge').then(({ getKnowledgeBase }) => {
       getKnowledgeBase(kbParam)
         .then((kb) => {
+          setStoredRaw(KB_STORAGE_KEY, kbParam)
           setActiveKBUuid(kbParam)
           setActiveKBTitle(kb.title)
           localStorage.setItem('workspace:mode', 'chat')
@@ -431,11 +466,13 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     import('../api/projects').then(({ getProject }) => {
       getProject(projectParam)
         .then((project) => {
+          setStoredRaw(PROJECT_STORAGE_KEY, projectParam)
           setActiveProjectUuid(projectParam)
           setActiveProjectTitle(project.title)
           setActiveProjectRootFolder(project.root_folder_uuid)
           setActiveProjectTeamId(project.team_id ?? null)
           setActiveProjectRole(project.role)
+          setStoredRaw(KB_STORAGE_KEY, null)
           setActiveKBUuid(null)
           setActiveKBTitle(null)
           setNewChatSignal(prev => prev + 1)
@@ -470,6 +507,73 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       })
     })
   }, [search.project, search.mode, navigate])
+
+  // Rehydrate the active project/KB scope on a fresh load (e.g. browser reload).
+  // Scope lives in ephemeral React state, so without this a refresh would drop
+  // it. We persist only the uuid and re-fetch here, so title/role/root are
+  // always current and a deleted/revoked scope self-heals by clearing storage.
+  // An inbound ?project=/?kb= deep link owns activation, so we defer to it.
+  const didRehydrateScope = useRef(false)
+  useEffect(() => {
+    if (didRehydrateScope.current) return
+    didRehydrateScope.current = true
+    if (search.project || search.kb) return
+
+    const storedProject = getStoredRaw(PROJECT_STORAGE_KEY)
+    if (storedProject) {
+      import('../api/projects').then(({ getProject }) => {
+        getProject(storedProject)
+          .then((project) => {
+            setActiveProjectUuid(storedProject)
+            setActiveProjectTitle(project.title)
+            setActiveProjectRootFolder(project.root_folder_uuid)
+            setActiveProjectTeamId(project.team_id ?? null)
+            setActiveProjectRole(project.role)
+          })
+          .catch(() => { setStoredRaw(PROJECT_STORAGE_KEY, null) })
+      }).catch(() => {})
+      return
+    }
+
+    const storedKB = getStoredRaw(KB_STORAGE_KEY)
+    if (storedKB) {
+      import('../api/knowledge').then(({ getKnowledgeBase }) => {
+        getKnowledgeBase(storedKB)
+          .then((kb) => {
+            setActiveKBUuid(storedKB)
+            setActiveKBTitle(kb.title)
+          })
+          .catch(() => { setStoredRaw(KB_STORAGE_KEY, null) })
+      }).catch(() => {})
+    }
+    // Run once on mount; search params are read for the deep-link guard only.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Projects and knowledge bases are team-scoped. Switching the current team
+  // (which happens live, without a reload) must drop any active scope so we
+  // never leave the user pointed at a project they can no longer access.
+  const prevTeamUuidRef = useRef<string | null | undefined>(undefined)
+  useEffect(() => {
+    const teamUuid = currentTeam?.uuid ?? null
+    if (prevTeamUuidRef.current === undefined) {
+      // First resolution of the current team — establish the baseline, don't
+      // clear (this is the team the rehydrated scope already belongs to).
+      prevTeamUuidRef.current = teamUuid
+      return
+    }
+    if (prevTeamUuidRef.current === teamUuid) return
+    prevTeamUuidRef.current = teamUuid
+    setStoredRaw(PROJECT_STORAGE_KEY, null)
+    setActiveProjectUuid(null)
+    setActiveProjectTitle(null)
+    setActiveProjectRootFolder(null)
+    setActiveProjectTeamId(null)
+    setActiveProjectRole(null)
+    setStoredRaw(KB_STORAGE_KEY, null)
+    setActiveKBUuid(null)
+    setActiveKBTitle(null)
+  }, [currentTeam?.uuid])
 
   // ── UI callbacks ────────────────────────────────────────────────────────
 
