@@ -37,7 +37,7 @@ import { uploadFile } from '../../api/files'
 import { listKnowledgeBases } from '../../api/knowledge'
 import { listAllFolders } from '../../api/folders'
 import type { KnowledgeBase } from '../../types/knowledge'
-import { listItems as listSearchSetItems, suggestFields } from '../../api/extractions'
+import { listItems as listSearchSetItems, suggestFields, getSearchSet } from '../../api/extractions'
 import { useWorkflowRunner } from '../../hooks/useWorkflowRunner'
 import { ApiError } from '../../api/client'
 import { MAX_NAME_LENGTH, normalizeName } from '../../utils/nameValidation'
@@ -2352,6 +2352,47 @@ function TaskEditModal({ task, selectedDocUuids, workflow, workflowId, onClose, 
     return () => { cancelled = true }
   }, [task.name, linkedSearchSetUuid])
 
+  // Saved Prompt / Formatter pickers. Prompt and Formatter steps can link a
+  // standalone Library prompt/formatter (a SearchSet with set_type
+  // 'prompt'/'formatter'); the body is resolved at runtime so edits to the
+  // saved item propagate to every workflow that links it.
+  const [showPromptPicker, setShowPromptPicker] = useState(false)
+  const [showFormatterPicker, setShowFormatterPicker] = useState(false)
+  const savedPromptUuid = (taskData.saved_prompt_uuid as string | undefined) || null
+  const savedFormatterUuid = (taskData.saved_formatter_uuid as string | undefined) || null
+  const linkedSavedUuid = task.name === 'Prompt' ? savedPromptUuid
+    : (task.name === 'Formatter' || task.name === 'Format') ? savedFormatterUuid
+    : null
+  const [linkedSavedBody, setLinkedSavedBody] = useState('')
+  const [linkedSavedLoading, setLinkedSavedLoading] = useState(false)
+  useEffect(() => {
+    if (!linkedSavedUuid) { setLinkedSavedBody(''); return }
+    let cancelled = false
+    setLinkedSavedLoading(true)
+    // Body source mirrors the runtime resolver: the first SearchSetItem's
+    // searchphrase if one exists (materialized on edit), otherwise
+    // extraction_config.content (set at creation).
+    ;(async () => {
+      try {
+        const items = await listSearchSetItems(linkedSavedUuid)
+        if (cancelled) return
+        if (items.length > 0 && items[0].searchphrase) {
+          setLinkedSavedBody(items[0].searchphrase)
+          return
+        }
+        const ss = await getSearchSet(linkedSavedUuid)
+        if (cancelled) return
+        const content = (ss.extraction_config as Record<string, unknown> | undefined)?.content
+        setLinkedSavedBody(typeof content === 'string' ? content : '')
+      } catch {
+        if (!cancelled) setLinkedSavedBody('')
+      } finally {
+        if (!cancelled) setLinkedSavedLoading(false)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [linkedSavedUuid])
+
   // Model override for LLM tasks
   const LLM_TASKS = ['Extraction', 'Prompt', 'Formatter', 'DescribeImage', 'ResearchNode', 'FormFiller', 'Browser']
   const [models, setModels] = useState<ModelInfo[]>([])
@@ -2546,6 +2587,42 @@ function TaskEditModal({ task, selectedDocUuids, workflow, workflowId, onClose, 
     setTaskData(prev => {
       const next = { ...prev }
       delete (next as Record<string, unknown>).search_set_uuid
+      return next
+    })
+  }
+
+  const handleSelectSavedPrompt = (id: string, name: string) => {
+    // Linking clears the inline prompt — the saved body is the source of truth
+    // and is resolved at runtime. Keep state matching what the UI shows.
+    setTaskData(prev => {
+      const next = { ...prev, saved_prompt_uuid: id, name: name || prev.name }
+      delete (next as Record<string, unknown>).prompt
+      return next
+    })
+    setShowPromptPicker(false)
+  }
+
+  const handleUnlinkSavedPrompt = () => {
+    setTaskData(prev => {
+      const next = { ...prev }
+      delete (next as Record<string, unknown>).saved_prompt_uuid
+      return next
+    })
+  }
+
+  const handleSelectSavedFormatter = (id: string, name: string) => {
+    setTaskData(prev => {
+      const next = { ...prev, saved_formatter_uuid: id, name: name || prev.name }
+      delete (next as Record<string, unknown>).format_template
+      return next
+    })
+    setShowFormatterPicker(false)
+  }
+
+  const handleUnlinkSavedFormatter = () => {
+    setTaskData(prev => {
+      const next = { ...prev }
+      delete (next as Record<string, unknown>).saved_formatter_uuid
       return next
     })
   }
@@ -2832,6 +2909,69 @@ function TaskEditModal({ task, selectedDocUuids, workflow, workflowId, onClose, 
                     }}
                   />
                 </div>
+                {/* Saved prompt picker */}
+                <div>
+                  <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 6 }}>
+                    Use Saved Prompt
+                  </label>
+                  <button
+                    onClick={() => setShowPromptPicker(true)}
+                    style={{
+                      width: '100%', padding: '8px 12px', fontSize: 13, fontFamily: 'inherit',
+                      border: '1px solid #d1d5db', borderRadius: 6, backgroundColor: '#fff',
+                      color: savedPromptUuid ? '#374151' : '#9ca3af',
+                      cursor: 'pointer', textAlign: 'left', display: 'flex',
+                      alignItems: 'center', justifyContent: 'space-between',
+                    }}
+                  >
+                    <span>{savedPromptUuid && getTextValue('name') ? getTextValue('name') : 'Browse prompts...'}</span>
+                    <ChevronDown style={{ width: 14, height: 14, color: '#9ca3af', flexShrink: 0 }} />
+                  </button>
+                  {showPromptPicker && (
+                    <ItemPickerModal
+                      kind="prompt"
+                      currentId={savedPromptUuid || undefined}
+                      onSelect={handleSelectSavedPrompt}
+                      onClose={() => setShowPromptPicker(false)}
+                      inline
+                    />
+                  )}
+                </div>
+                {savedPromptUuid ? (
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 6, gap: 8 }}>
+                    <label style={{ fontSize: 13, fontWeight: 600, color: '#374151' }}>
+                      Prompt
+                    </label>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span style={{ fontSize: 11, color: '#6b7280' }}>
+                        From saved prompt — edit in the Library
+                      </span>
+                      <button
+                        type="button"
+                        onClick={handleUnlinkSavedPrompt}
+                        title="Unlink this saved prompt and enter one manually"
+                        style={{
+                          fontSize: 11, padding: '2px 8px', border: '1px solid #d1d5db',
+                          borderRadius: 4, backgroundColor: '#fff', color: '#374151',
+                          cursor: 'pointer', fontFamily: 'inherit',
+                        }}
+                      >
+                        Unlink
+                      </button>
+                    </div>
+                  </div>
+                  <div style={{
+                    padding: '10px 12px', border: '1px solid #d1d5db', borderRadius: 6,
+                    backgroundColor: '#f9fafb', fontSize: 13, color: '#374151',
+                    whiteSpace: 'pre-wrap', lineHeight: 1.5, minHeight: 38,
+                  }}>
+                    {linkedSavedLoading
+                      ? <span style={{ color: '#9ca3af' }}>Loading prompt…</span>
+                      : linkedSavedBody || <span style={{ color: '#9ca3af' }}>This saved prompt has no content yet.</span>}
+                  </div>
+                </div>
+                ) : (
                 <div>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
                     <label style={{ fontSize: 13, fontWeight: 600, color: '#374151' }}>
@@ -2946,28 +3086,95 @@ function TaskEditModal({ task, selectedDocUuids, workflow, workflowId, onClose, 
                     </div>
                   )}
                 </div>
+                )}
               </div>
             )}
 
             {(task.name === 'Formatter' || task.name === 'Format') && (
-              <div>
-                <label style={{
-                  display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 8,
-                }}>
-                  Format Template
-                </label>
-                <textarea
-                  value={getTextValue('format_template') || getTextValue('prompt')}
-                  onChange={e => setTextValue('format_template', e.target.value)}
-                  placeholder="Enter your format template..."
-                  rows={10}
-                  style={{
-                    width: '100%', padding: '10px 12px', fontSize: 14,
-                    fontFamily: 'inherit', border: '1px solid #d1d5db', borderRadius: 6,
-                    outline: 'none', resize: 'vertical', boxSizing: 'border-box',
-                    lineHeight: 1.5,
-                  }}
-                />
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                {/* Saved formatter picker */}
+                <div>
+                  <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 6 }}>
+                    Use Saved Formatter
+                  </label>
+                  <button
+                    onClick={() => setShowFormatterPicker(true)}
+                    style={{
+                      width: '100%', padding: '8px 12px', fontSize: 13, fontFamily: 'inherit',
+                      border: '1px solid #d1d5db', borderRadius: 6, backgroundColor: '#fff',
+                      color: savedFormatterUuid ? '#374151' : '#9ca3af',
+                      cursor: 'pointer', textAlign: 'left', display: 'flex',
+                      alignItems: 'center', justifyContent: 'space-between',
+                    }}
+                  >
+                    <span>{savedFormatterUuid && getTextValue('name') ? getTextValue('name') : 'Browse formatters...'}</span>
+                    <ChevronDown style={{ width: 14, height: 14, color: '#9ca3af', flexShrink: 0 }} />
+                  </button>
+                  {showFormatterPicker && (
+                    <ItemPickerModal
+                      kind="formatter"
+                      currentId={savedFormatterUuid || undefined}
+                      onSelect={handleSelectSavedFormatter}
+                      onClose={() => setShowFormatterPicker(false)}
+                      inline
+                    />
+                  )}
+                </div>
+                {savedFormatterUuid ? (
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 6, gap: 8 }}>
+                    <label style={{ fontSize: 13, fontWeight: 600, color: '#374151' }}>
+                      Format Template
+                    </label>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span style={{ fontSize: 11, color: '#6b7280' }}>
+                        From saved formatter — edit in the Library
+                      </span>
+                      <button
+                        type="button"
+                        onClick={handleUnlinkSavedFormatter}
+                        title="Unlink this saved formatter and enter one manually"
+                        style={{
+                          fontSize: 11, padding: '2px 8px', border: '1px solid #d1d5db',
+                          borderRadius: 4, backgroundColor: '#fff', color: '#374151',
+                          cursor: 'pointer', fontFamily: 'inherit',
+                        }}
+                      >
+                        Unlink
+                      </button>
+                    </div>
+                  </div>
+                  <div style={{
+                    padding: '10px 12px', border: '1px solid #d1d5db', borderRadius: 6,
+                    backgroundColor: '#f9fafb', fontSize: 13, color: '#374151',
+                    whiteSpace: 'pre-wrap', lineHeight: 1.5, minHeight: 38,
+                  }}>
+                    {linkedSavedLoading
+                      ? <span style={{ color: '#9ca3af' }}>Loading formatter…</span>
+                      : linkedSavedBody || <span style={{ color: '#9ca3af' }}>This saved formatter has no content yet.</span>}
+                  </div>
+                </div>
+                ) : (
+                <div>
+                  <label style={{
+                    display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 8,
+                  }}>
+                    Format Template
+                  </label>
+                  <textarea
+                    value={getTextValue('format_template') || getTextValue('prompt')}
+                    onChange={e => setTextValue('format_template', e.target.value)}
+                    placeholder="Enter your format template..."
+                    rows={10}
+                    style={{
+                      width: '100%', padding: '10px 12px', fontSize: 14,
+                      fontFamily: 'inherit', border: '1px solid #d1d5db', borderRadius: 6,
+                      outline: 'none', resize: 'vertical', boxSizing: 'border-box',
+                      lineHeight: 1.5,
+                    }}
+                  />
+                </div>
+                )}
               </div>
             )}
 
