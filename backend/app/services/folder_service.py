@@ -1,3 +1,4 @@
+import logging
 import re
 import uuid
 
@@ -5,6 +6,8 @@ from app.models.document import SmartDocument
 from app.models.folder import SmartFolder
 from app.models.user import User
 from app.services import access_control
+
+logger = logging.getLogger(__name__)
 
 
 def _safe_component(name: str) -> str:
@@ -95,8 +98,23 @@ async def move_folder(folder_uuid: str, new_parent_id: str, user: User) -> Smart
             "Use 'Convert to team folder' instead."
         )
 
+    old_parent_id = folder.parent_id
     folder.parent_id = new_parent_id
     await folder.save()
+
+    # Re-sync project knowledge-base membership for every document in the moved
+    # subtree (moving a folder into/out of a project changes the owning project
+    # for all docs under it). Best-effort, async via Celery.
+    if old_parent_id != new_parent_id:
+        try:
+            from app.tasks.document_tasks import sync_project_kb_on_folder_move
+
+            sync_project_kb_on_folder_move.delay(folder_uuid, old_parent_id)
+        except Exception:
+            logger.warning(
+                "Failed to dispatch project KB sync for moved folder %s", folder_uuid
+            )
+
     return folder
 
 

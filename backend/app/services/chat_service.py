@@ -33,6 +33,7 @@ from app.services.llm_service import (
     FIRST_SESSION_SYSTEM_PROMPT,
     HELP_CHAT_SYSTEM_PROMPT,
     KB_CHAT_SYSTEM_PROMPT,
+    PROJECT_KB_EMPTY_SYSTEM_PROMPT,
     VANDALIZER_CONTEXT,
 )
 
@@ -371,6 +372,12 @@ async def chat_stream(
         system_prompt: Optional[str] = KB_CHAT_SYSTEM_PROMPT
     elif have_context:
         system_prompt = DOCUMENT_CHAT_SYSTEM_PROMPT
+    elif kb_uuid:
+        # A project/KB chat was requested but retrieval returned nothing (empty KB,
+        # docs not indexed yet, or no match). Do NOT fall through to system_prompt=None
+        # — that lets the model freely hallucinate document contents. Tell it the KB
+        # was empty for this query while still allowing general-knowledge answers.
+        system_prompt = PROJECT_KB_EMPTY_SYSTEM_PROMPT
     elif is_first_session:
         # First-session onboarding: conversational value discovery.
         # Do NOT inject VANDALIZER_CONTEXT here — it's a technical how-to dump
