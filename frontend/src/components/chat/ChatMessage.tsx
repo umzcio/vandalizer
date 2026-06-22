@@ -63,6 +63,7 @@ export function ChatMessage({ message, messageIndex, conversationUuid, streaming
   const [comment, setComment] = useState('')
   const [commentSent, setCommentSent] = useState(false)
   const [thinkingExpanded, setThinkingExpanded] = useState(false)
+  const [openCitation, setOpenCitation] = useState<number | null>(null)
   const contentRef = useRef<HTMLDivElement>(null)
   const certPanel = useCertificationPanel()
   const { setWorkspaceMode } = useWorkspace()
@@ -224,33 +225,59 @@ export function ChatMessage({ message, messageIndex, conversationUuid, streaming
             />
           )}
 
-          {message.citations && message.citations.length > 0 && (
-            <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-              <span style={{ fontSize: 11, color: '#6b7280', alignSelf: 'center', marginRight: 2 }}>
-                Sources:
-              </span>
-              {message.citations.map((c, i) => {
-                const locator = typeof c.page === 'number' ? `p. ${c.page}` : (c.sheet || null)
-                const label = locator ? `${c.document_title} · ${locator}` : c.document_title
-                const preview = c.content_preview || ''
-                return (
-                  <span
-                    key={`${c.chunk_id ?? c.document_id ?? i}`}
-                    title={preview}
-                    style={{
-                      display: 'inline-flex', alignItems: 'center', gap: 4,
-                      padding: '2px 8px', fontSize: 11, fontWeight: 500,
-                      backgroundColor: '#f3f4f6', color: '#374151',
-                      border: '1px solid #e5e7eb', borderRadius: 999,
-                      cursor: 'help',
-                    }}
-                  >
-                    {label}
+          {message.citations && message.citations.length > 0 && (() => {
+            const open = openCitation !== null ? message.citations[openCitation] : null
+            const openPreview = open?.content_preview?.trim() || ''
+            return (
+              <div style={{ marginTop: 8 }}>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  <span style={{ fontSize: 11, color: '#6b7280', alignSelf: 'center', marginRight: 2 }}>
+                    Sources:
                   </span>
-                )
-              })}
-            </div>
-          )}
+                  {message.citations.map((c, i) => {
+                    const locator = typeof c.page === 'number' ? `p. ${c.page}` : (c.sheet || null)
+                    const label = locator ? `${c.document_title} · ${locator}` : c.document_title
+                    const preview = c.content_preview || ''
+                    const isOpen = openCitation === i
+                    return (
+                      <button
+                        key={`${c.chunk_id ?? c.document_id ?? i}`}
+                        type="button"
+                        title={preview}
+                        aria-expanded={isOpen}
+                        onClick={() => setOpenCitation(isOpen ? null : i)}
+                        style={{
+                          display: 'inline-flex', alignItems: 'center', gap: 4,
+                          padding: '2px 8px', fontSize: 11, fontWeight: 500,
+                          backgroundColor: isOpen ? '#e0e7ff' : '#f3f4f6',
+                          color: isOpen ? '#3730a3' : '#374151',
+                          border: `1px solid ${isOpen ? '#c7d2fe' : '#e5e7eb'}`,
+                          borderRadius: 999,
+                          cursor: 'pointer', transition: 'all 0.15s',
+                        }}
+                      >
+                        {label}
+                      </button>
+                    )
+                  })}
+                </div>
+                {open && (
+                  <div style={{
+                    marginTop: 6, padding: '8px 10px', fontSize: 12, lineHeight: 1.5,
+                    color: '#374151', backgroundColor: '#f9fafb',
+                    border: '1px solid #e5e7eb', borderRadius: 8,
+                    whiteSpace: 'pre-wrap' as const,
+                  }}>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: '#6b7280', marginBottom: 4 }}>
+                      {open.document_title}
+                      {typeof open.page === 'number' ? ` · p. ${open.page}` : (open.sheet ? ` · ${open.sheet}` : '')}
+                    </div>
+                    {openPreview || 'No preview available for this source.'}
+                  </div>
+                )}
+              </div>
+            )
+          })()}
 
           {/* Feedback bar - hidden during streaming */}
           {!isStreamingProp && message.content && <div style={{
