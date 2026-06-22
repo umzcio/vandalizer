@@ -112,10 +112,16 @@ async def _resolve_action_names_bulk(automations: list) -> dict[str, str]:
             search_set_ids.append(auto.action_id)
 
     names: dict[str, str] = {}
+    # Name resolution only decorates the response; a lookup failure must degrade
+    # to "unnamed" rather than 500 the whole list (the prior per-row resolver
+    # swallowed errors the same way).
     if workflow_oids:
-        workflows = await WfModel.find({"_id": {"$in": workflow_oids}}).to_list()
-        for wf in workflows:
-            names[str(wf.id)] = wf.name
+        try:
+            workflows = await WfModel.find({"_id": {"$in": workflow_oids}}).to_list()
+            for wf in workflows:
+                names[str(wf.id)] = wf.name
+        except Exception:
+            logger.warning("Bulk workflow name resolution failed", exc_info=True)
     if search_set_ids:
         # action_id is normally the SearchSet uuid; fall back to _id matches.
         oid_candidates: list[PydanticObjectId] = []
@@ -124,15 +130,18 @@ async def _resolve_action_names_bulk(automations: list) -> dict[str, str]:
                 oid_candidates.append(PydanticObjectId(sid))
             except Exception:
                 pass
-        search_sets = await SearchSet.find(
-            {"$or": [
-                {"uuid": {"$in": search_set_ids}},
-                {"_id": {"$in": oid_candidates}},
-            ]}
-        ).to_list()
-        for ss in search_sets:
-            names[ss.uuid] = ss.title
-            names[str(ss.id)] = ss.title
+        try:
+            search_sets = await SearchSet.find(
+                {"$or": [
+                    {"uuid": {"$in": search_set_ids}},
+                    {"_id": {"$in": oid_candidates}},
+                ]}
+            ).to_list()
+            for ss in search_sets:
+                names[ss.uuid] = ss.title
+                names[str(ss.id)] = ss.title
+        except Exception:
+            logger.warning("Bulk search-set name resolution failed", exc_info=True)
     return names
 
 
