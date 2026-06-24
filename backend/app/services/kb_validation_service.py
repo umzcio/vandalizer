@@ -110,6 +110,12 @@ class RAGConfig(BaseModel):
     # T4.2: temperature passed to the answer-generation agent. Judge is pinned
     # to 0.0 elsewhere; this only affects the RAG answer.
     answer_temperature: float = 0.0
+    # Retrieval similarity floor (cosine, 0-1). Chunks scoring below this are
+    # dropped before generation. 0.0 = disabled (legacy behaviour). When the
+    # floor empties the candidate set, the empty-retrieval path produces a clean
+    # "not in the KB" refusal instead of letting the model answer from weakly
+    # related junk. Tune per KB via the Autovalidate optimizer; never guess it.
+    min_similarity: float = 0.0
 
     model_config = {"extra": "forbid"}
 
@@ -308,6 +314,22 @@ async def _resolve_rag_config(kb_uuid: str, explicit: Optional[RAGConfig], k: in
     return RAGConfig(k=k)
 
 
+async def resolve_kb_min_similarity(kb_uuid: str) -> float:
+    """Return the per-KB retrieval similarity floor (0.0 = disabled).
+
+    Reads the KB's applied ``rag_config_override`` so the live chat path honours
+    the same floor the Autovalidate optimizer tunes — keeping the user-facing
+    surface and the validation harness in lockstep. Defaults to 0.0 (no gating)
+    on any lookup/parse failure so retrieval never silently over-filters.
+    """
+    try:
+        cfg = await _resolve_rag_config(kb_uuid, None, DEFAULT_K)
+        return cfg.min_similarity
+    except Exception as e:
+        logger.debug("min_similarity resolve failed for KB %s: %s", kb_uuid, e)
+        return 0.0
+
+
 async def _generate_kb_answer(
     kb_uuid: str,
     query: str,
@@ -348,7 +370,11 @@ async def _generate_kb_answer(
     # asks an LLM to pick the top cfg.k. Skips when results returned <=cfg.k
     # (nothing to rerank).
     retrieve_k = cfg.k * RERANK_POOL_MULTIPLIER if cfg.rerank == "llm" else cfg.k
-    results = await asyncio.to_thread(dm.query_kb, kb_uuid, retrieval_query, retrieve_k)
+    results = await asyncio.to_thread(
+        dm.query_kb, kb_uuid, retrieval_query, retrieve_k, cfg.min_similarity
+    )
+    # Empty *or* gated-empty: nothing cleared the relevance floor, so abstain
+    # rather than generate. Reuses the existing empty-retrieval refusal.
     if not results:
         return ("I could not find any relevant information in the knowledge base.", [], tokens)
     if cfg.rerank == "llm":

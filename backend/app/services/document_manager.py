@@ -366,8 +366,17 @@ class DocumentManager:
         kb_uuid: str,
         query: str,
         k: int = 8,
+        min_similarity: float = 0.0,
     ) -> list[dict[str, Any]]:
-        """Similarity search on a KB collection."""
+        """Similarity search on a KB collection.
+
+        ``min_similarity`` (cosine, 0-1) is a relevance floor: chunks scoring
+        below it are dropped from the result. The default 0.0 disables the
+        filter, preserving legacy behaviour for every caller that doesn't opt
+        in. A positive floor lets RAG callers treat "retrieved only weakly
+        related junk" the same as "retrieved nothing" — handing the model an
+        empty set so it abstains rather than answering from off-topic chunks.
+        """
         collection = self.get_kb_collection(kb_uuid)
         results = collection.query(query_texts=[query], n_results=k)
 
@@ -385,6 +394,12 @@ class DocumentManager:
                 similarity = None
                 if isinstance(dist, (int, float)):
                     similarity = max(0.0, min(1.0, 1.0 - dist / 2.0))
+                # Apply the relevance floor. We only drop chunks we can actually
+                # score; a None similarity (missing distance) is kept rather than
+                # silently filtered, so a degraded distance signal never causes a
+                # spurious abstention.
+                if min_similarity > 0.0 and similarity is not None and similarity < min_similarity:
+                    continue
                 output.append({
                     "content": doc,
                     "metadata": metadata,

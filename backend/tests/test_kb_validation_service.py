@@ -329,6 +329,75 @@ async def test_generate_kb_answer_swallows_agent_errors():
     assert tokens == 0  # exception swallowed before usage() ran
 
 
+@pytest.mark.asyncio
+async def test_generate_kb_answer_forwards_min_similarity_floor():
+    """The configured relevance floor must reach query_kb so gating happens at
+    retrieval — not be silently dropped on the way down."""
+    from app.services.kb_validation_service import RAGConfig
+
+    fake_dm = MagicMock()
+    fake_dm.query_kb = MagicMock(return_value=[
+        {"content": "ctx", "metadata": {"source_name": "S"}},
+    ])
+    fake_agent = MagicMock()
+    fake_agent.run = AsyncMock(return_value=_make_mock_run("answer", tokens=10))
+
+    with patch.object(kb_validation_service, "_get_dm", return_value=fake_dm), \
+         patch.object(kb_validation_service, "_get_or_build_agent", return_value=fake_agent):
+        await kb_validation_service._generate_kb_answer(
+            "kb-1", "Q?", "test-model", config=RAGConfig(min_similarity=0.3),
+        )
+
+    # query_kb(kb_uuid, query, retrieve_k, min_similarity) — floor is 4th arg.
+    assert fake_dm.query_kb.call_args.args == ("kb-1", "Q?", 8, 0.3)
+
+
+@pytest.mark.asyncio
+async def test_generate_kb_answer_gated_empty_abstains():
+    """When the floor filters every chunk, query_kb returns [] and the answer is
+    the clean abstention — no generation from junk."""
+    fake_dm = MagicMock()
+    fake_dm.query_kb = MagicMock(return_value=[])  # everything fell below the floor
+    from app.services.kb_validation_service import RAGConfig
+
+    with patch.object(kb_validation_service, "_get_dm", return_value=fake_dm):
+        answer, retrieved, tokens = await kb_validation_service._generate_kb_answer(
+            "kb-1", "out of scope?", "test-model", config=RAGConfig(min_similarity=0.9),
+        )
+
+    assert "could not find" in answer.lower()
+    assert retrieved == []
+    assert tokens == 0
+
+
+@pytest.mark.asyncio
+async def test_resolve_kb_min_similarity_reads_resolved_config():
+    """The live chat path surfaces the floor from the resolved per-KB config —
+    the same RAGConfig the validation/optimizer path uses."""
+    from app.services.kb_validation_service import RAGConfig
+
+    with patch.object(
+        kb_validation_service, "_resolve_rag_config",
+        AsyncMock(return_value=RAGConfig(min_similarity=0.42)),
+    ):
+        floor = await kb_validation_service.resolve_kb_min_similarity("kb-1")
+
+    assert floor == 0.42
+
+
+@pytest.mark.asyncio
+async def test_resolve_kb_min_similarity_defaults_zero_on_error():
+    """A config-resolution failure must degrade to 0.0 (gating off) rather than
+    propagate — retrieval should never break or spuriously over-filter."""
+    with patch.object(
+        kb_validation_service, "_resolve_rag_config",
+        AsyncMock(side_effect=RuntimeError("db down")),
+    ):
+        floor = await kb_validation_service.resolve_kb_min_similarity("kb-x")
+
+    assert floor == 0.0
+
+
 # ---------------------------------------------------------------------------
 # LLM judge: parsing, scoring, lift, discrimination
 # ---------------------------------------------------------------------------
@@ -585,7 +654,8 @@ async def test_generate_kb_answer_with_explicit_config_overrides_k():
             "kb-1", "Q?", "test-model", config=cfg
         )
 
-    fake_dm.query_kb.assert_called_once_with("kb-1", "Q?", 12)
+    # 4th arg is the similarity floor (default 0.0 = ungated for this config).
+    fake_dm.query_kb.assert_called_once_with("kb-1", "Q?", 12, 0.0)
 
 
 @pytest.mark.asyncio
