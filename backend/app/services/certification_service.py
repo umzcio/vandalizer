@@ -755,7 +755,17 @@ async def _validate_validation_qa(user_id: str) -> dict:
 
 async def _validate_batch_processing(user_id: str) -> dict:
     checks = []
-    results = await WorkflowResult.find(WorkflowResult.user_id == user_id).to_list()
+    # WorkflowResult has no user_id field, so scope by the user's workflows
+    # (the same way every other validator scopes its data). Querying a
+    # non-existent field here used to raise and surface as a generic
+    # "cannot be verified, try again later" error, making the module unpassable.
+    workflows = await Workflow.find(Workflow.user_id == user_id).to_list()
+    workflow_ids = [wf.id for wf in workflows]
+    results = (
+        await WorkflowResult.find({"workflow": {"$in": workflow_ids}}).to_list()
+        if workflow_ids
+        else []
+    )
 
     batch_ids: dict[str, list] = {}
     for r in results:
