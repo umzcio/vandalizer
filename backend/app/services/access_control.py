@@ -631,6 +631,13 @@ def can_manage_knowledge_base(
         return True
     if not _org_scope_allows(knowledge_base.organization_ids, user_org_ancestry):
         return False
+    # Examiners are the catalog-governance role: they curate verified KBs
+    # (validate & improve, tags, org-visibility) even when they don't own them.
+    # Mirrors can_view_knowledge_base's verified branch and the frontend's
+    # `verified && isExaminerOrAdmin` manage gate. Scoped to verified only, so
+    # examiners gain no manage rights over private/team KBs they don't own.
+    if user.is_examiner and knowledge_base.verified:
+        return True
     return bool(
         knowledge_base.shared_with_team
         and _team_role(knowledge_base.team_id, team_access) in TEAM_MANAGE_ROLES

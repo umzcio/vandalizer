@@ -36,10 +36,11 @@ from app.services.access_control import (
 # ---------------------------------------------------------------------------
 
 
-def _make_user(user_id="user1", is_admin=False):
+def _make_user(user_id="user1", is_admin=False, is_examiner=False):
     u = MagicMock()
     u.user_id = user_id
     u.is_admin = is_admin
+    u.is_examiner = is_examiner
     return u
 
 
@@ -521,6 +522,39 @@ class TestKnowledgeBaseAccess:
             object_roles={"team-obj-1": "admin"},
         )
         assert can_manage_knowledge_base(kb, user, access) is True
+
+    def test_examiner_can_manage_verified_kb_they_do_not_own(self):
+        # Examiners are the catalog-governance role: they curate verified KBs
+        # (validate & improve, tags, org-visibility) even when not the owner.
+        user = _make_user("examiner1", is_examiner=True)
+        kb = _make_knowledge_base(user_id="owner1", verified=True)
+        access = _team_access()
+        assert can_manage_knowledge_base(kb, user, access) is True
+
+    def test_examiner_cannot_manage_unverified_kb_they_do_not_own(self):
+        # The examiner branch is scoped to verified KBs — no new power over
+        # someone else's private/unverified KB.
+        user = _make_user("examiner1", is_examiner=True)
+        kb = _make_knowledge_base(user_id="owner1", verified=False)
+        access = _team_access()
+        assert can_manage_knowledge_base(kb, user, access) is False
+
+    def test_examiner_manage_on_verified_kb_respects_org_scope(self):
+        # Org-scoped verified KBs stay gated by the user's org ancestry, same
+        # as the view path.
+        user = _make_user("examiner1", is_examiner=True)
+        kb = _make_knowledge_base(
+            user_id="owner1",
+            verified=True,
+            organization_ids=["org-a"],
+        )
+        access = _team_access()
+        assert can_manage_knowledge_base(
+            kb, user, access, user_org_ancestry=["org-a"],
+        ) is True
+        assert can_manage_knowledge_base(
+            kb, user, access, user_org_ancestry=["org-b"],
+        ) is False
 
 
 # ---------------------------------------------------------------------------
