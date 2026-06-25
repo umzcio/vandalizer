@@ -20,9 +20,18 @@ logger = logging.getLogger(__name__)
 
 _dm: DocumentManager | None = None
 
-# Module-level agent cache. Key: (purpose, model_name). Each judge/answer agent
-# is reused across queries within a process.
-_agent_cache: dict[tuple[str, str], Agent] = {}
+# Module-level agent cache. Key: (purpose, model_name); value: (event_loop, agent).
+# The agent is reused only for calls on the SAME running event loop that first
+# built it. A cached pydantic-ai Agent carries an httpx pool bound (via
+# get_agent_model -> _get_loop_http_client) to whichever loop first used it.
+# Celery runs each task (e.g. KB tuning, then a "Run Now" validation) on its own
+# fresh event loop in the same worker process, so reusing an agent built on a
+# prior, now-closed loop raises "bound to a different event loop", which the
+# OpenAI SDK re-wraps as a zero-token "Connection error" on every query. Keying
+# on the loop rebuilds the agent when the loop differs (mirrors
+# llm_service.create_chat_agent's "always build fresh across loops" rule) while
+# still reusing it across the many queries within a single validation run.
+_agent_cache: dict[tuple[str, str], tuple[asyncio.AbstractEventLoop, Agent]] = {}
 
 # Per-task SystemConfig snapshot. Set by public entry points (judge_test_queries,
 # _sample_judge_variance, run_kb_validation) so the sync agent-builder can pass
@@ -257,17 +266,30 @@ def _get_dm() -> DocumentManager:
 
 
 def _get_or_build_agent(purpose: str, model_name: str, system_prompt: str, model_settings: dict | None = None) -> Agent:
-    """Return a cached pydantic-ai Agent for the given purpose+model."""
+    """Return a pydantic-ai Agent for the given purpose+model.
+
+    Reuses a cached agent only when it was built on the currently running event
+    loop; otherwise rebuilds it. The agent's httpx pool is loop-bound, so a
+    cached agent from a prior Celery task's loop (e.g. KB tuning) would fail a
+    later "Run Now" validation with a "Connection error" — see _agent_cache.
+    """
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+
     key = (purpose, model_name)
     cached = _agent_cache.get(key)
-    if cached is not None:
-        return cached
+    if cached is not None and loop is not None and cached[0] is loop:
+        return cached[1]
+
     model = get_agent_model(model_name, system_config_doc=_active_system_config_doc.get())
     kwargs: dict = {"system_prompt": system_prompt}
     if model_settings:
         kwargs["model_settings"] = model_settings
     agent = Agent(model, **kwargs)
-    _agent_cache[key] = agent
+    if loop is not None:
+        _agent_cache[key] = (loop, agent)
     return agent
 
 

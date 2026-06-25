@@ -236,6 +236,43 @@ def test_format_retrieved_context_renders_source_blocks():
     assert "## Source: Empty" not in formatted
 
 
+def test_get_or_build_agent_reuses_within_same_loop():
+    """Same running loop + same (purpose, model) -> one agent, built once."""
+    import asyncio
+
+    sentinel_agent = object()
+    with patch.object(kb_validation_service, "get_agent_model", return_value=MagicMock()), \
+         patch.object(kb_validation_service, "Agent", return_value=sentinel_agent) as agent_ctor:
+        async def _twice():
+            a = kb_validation_service._get_or_build_agent("kb_judge:factoid", "m", "prompt")
+            b = kb_validation_service._get_or_build_agent("kb_judge:factoid", "m", "prompt")
+            return a, b
+
+        a, b = asyncio.run(_twice())
+    assert a is b is sentinel_agent
+    assert agent_ctor.call_count == 1
+
+
+def test_get_or_build_agent_rebuilds_across_loops():
+    """A cached agent from a prior, now-closed loop is NOT reused on a new loop.
+
+    Regression for "Judge error: Connection error" after KB tuning: the agent's
+    httpx pool is bound to the loop that built it, so reusing it on a later
+    Celery task's loop raised a zero-token connection error on every query.
+    """
+    import asyncio
+
+    with patch.object(kb_validation_service, "get_agent_model", return_value=MagicMock()), \
+         patch.object(kb_validation_service, "Agent", side_effect=lambda *a, **k: object()) as agent_ctor:
+        async def _build():
+            return kb_validation_service._get_or_build_agent("kb_judge:factoid", "m", "prompt")
+
+        first = asyncio.run(_build())   # loop A (closed on return)
+        second = asyncio.run(_build())  # loop B — must rebuild, not reuse loop A's agent
+    assert first is not second
+    assert agent_ctor.call_count == 2
+
+
 @pytest.mark.asyncio
 async def test_generate_kb_answer_uses_retrieved_context():
     fake_dm = MagicMock()
