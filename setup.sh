@@ -845,6 +845,36 @@ bootstrap() {
   local ORG_NAME=""
   prompt "Institution / organization name" "" ORG_NAME
 
+  # --- Anonymous usage telemetry (opt-in) ---
+  echo ""
+  echo -e "  ${SYM_NEURAL}  ${BOLD}Usage telemetry${RESET} ${DIM}(optional)${RESET}"
+  echo -e "  ${DIM}     A once-a-day heartbeat helps the Vandalizer maintainers see how${RESET}"
+  echo -e "  ${DIM}     many deployments exist and roughly how heavily they're used.${RESET}"
+  echo -e "  ${DIM}     Sends ONLY: an anonymous random ID, the version, and coarse usage${RESET}"
+  echo -e "  ${DIM}     buckets (\"11-50 users\"). NEVER documents, names, emails, or keys.${RESET}"
+  echo -e "  ${DIM}     Off by default; change TELEMETRY_* in backend/.env anytime.${RESET}"
+  echo ""
+  if confirm "Send anonymous usage telemetry?" "n"; then
+    set_env "TELEMETRY_ENABLED" "true"
+    # Provisional collector on the U of I instance; override in .env to self-host.
+    set_env "TELEMETRY_ENDPOINT" "https://vandalizer.nkn.uidaho.edu/api/telemetry/heartbeat"
+    echo -e "  ${SYM_CHECK}  Anonymous telemetry ${BOLD}enabled${RESET}"
+
+    # Voluntary identity tier — only offered when they already named the
+    # institution above, and only attached if they explicitly agree.
+    if [[ -n "$ORG_NAME" ]]; then
+      if confirm "Identify this deployment as \"${ORG_NAME}\" (otherwise stays anonymous)?" "n"; then
+        set_env "TELEMETRY_ORGANIZATION" "$ORG_NAME"
+        echo -e "  ${SYM_CHECK}  Telemetry will identify this deployment as ${BOLD}${ORG_NAME}${RESET}"
+      else
+        echo -e "  ${SYM_CHECK}  Telemetry will stay ${BOLD}anonymous${RESET}"
+      fi
+    fi
+  else
+    set_env "TELEMETRY_ENABLED" "false"
+    echo -e "  ${SYM_CHECK}  Telemetry ${BOLD}disabled${RESET}"
+  fi
+
   echo ""
   echo -e "  ${SYM_NEURAL}  ${BOLD}Verified catalog${RESET}"
   echo -e "  ${DIM}     The bootstrap will also seed research administration content:${RESET}"
