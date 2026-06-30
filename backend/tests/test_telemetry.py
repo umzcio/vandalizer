@@ -307,8 +307,13 @@ def test_tally_counts_and_defaults_unknown():
     assert rx._tally(["a", "a", "b", ""]) == {"a": 2, "b": 1, "unknown": 1}
 
 
-def _row(version, env, users, org, days_ago):
+def _row(version, env, users, org, days_ago, naive=False):
     last_seen = rx._utcnow() - datetime.timedelta(days=days_ago)
+    if naive:
+        # Mirror what Mongo actually returns: a naive (tz-unaware) UTC datetime,
+        # since the Motor client isn't tz_aware. The aggregation must not choke
+        # comparing these against the tz-aware active-window cutoff.
+        last_seen = last_seen.replace(tzinfo=None)
     return SimpleNamespace(
         version=version, environment=env, metrics={"users": users},
         organization=org, last_seen=last_seen,
@@ -349,6 +354,29 @@ async def test_analytics_aggregates_active_named_and_anonymous():
     assert [d["organization"] for d in out["named_deployments"]] == ["U of Idaho", "Stale U"]
     assert out["named_deployments"][0]["active"] is True
     assert out["named_deployments"][1]["active"] is False
+
+
+@pytest.mark.asyncio
+async def test_analytics_handles_naive_mongo_datetimes():
+    """Real heartbeat rows come back from Mongo tz-naive; the aggregation must
+    treat them as UTC instead of 500'ing on a naive-vs-aware comparison."""
+    rows = [
+        _row("v1", "production", "2-10", "U of Idaho", days_ago=1, naive=True),
+        _row("v2", "other", "11-50", None, days_ago=99, naive=True),
+    ]
+    admin = SimpleNamespace(is_admin=True, is_staff=False)
+    with patch.object(rx, "TelemetryHeartbeat") as Model:
+        Model.find_all = MagicMock(
+            return_value=MagicMock(to_list=AsyncMock(return_value=rows))
+        )
+        out = await rx.telemetry_analytics(user=admin)
+
+    assert out["total_instances"] == 2
+    assert out["active_instances_30d"] == 1
+    assert out["named_deployments"][0]["organization"] == "U of Idaho"
+    assert out["named_deployments"][0]["active"] is True
+    # Serialized timestamp carries an explicit UTC offset, not a bare naive string.
+    assert out["named_deployments"][0]["last_seen"].endswith("+00:00")
 
 
 # ---------------------------------------------------------------------------

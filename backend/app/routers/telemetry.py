@@ -44,6 +44,18 @@ def _utcnow() -> datetime.datetime:
     return datetime.datetime.now(datetime.timezone.utc)
 
 
+def _as_utc(dt: datetime.datetime) -> datetime.datetime:
+    """Coerce a possibly-naive datetime to aware UTC.
+
+    Datetimes read back from Mongo are naive (the Motor client isn't tz_aware),
+    so comparing ``last_seen`` against a tz-aware cutoff raises ``TypeError:
+    can't compare offset-naive and offset-aware datetimes`` — a 500 that only
+    appears once the roster has at least one row. Naive values are already UTC,
+    so just attach the tzinfo.
+    """
+    return dt if dt.tzinfo is not None else dt.replace(tzinfo=datetime.timezone.utc)
+
+
 # ---------------------------------------------------------------------------
 # Ingest payload validation — mirrors the client's build_heartbeat_payload.
 # extra="ignore" lets future schema additions arrive without 422-ing old
@@ -148,15 +160,15 @@ async def telemetry_analytics(user: User = Depends(get_current_user)) -> dict:
     rows = await TelemetryHeartbeat.find_all().to_list()
 
     total = len(rows)
-    active = [r for r in rows if r.last_seen >= active_cutoff]
+    active = [r for r in rows if _as_utc(r.last_seen) >= active_cutoff]
 
     named = [
         {
             "organization": r.organization,
             "version": r.version,
             "environment": r.environment,
-            "last_seen": r.last_seen.isoformat(),
-            "active": r.last_seen >= active_cutoff,
+            "last_seen": _as_utc(r.last_seen).isoformat(),
+            "active": _as_utc(r.last_seen) >= active_cutoff,
         }
         for r in rows
         if r.organization
