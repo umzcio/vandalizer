@@ -132,5 +132,13 @@ if not settings.enable_trial_system:
     for _key in ("demo-process-waitlist", "demo-check-expirations", "demo-send-expiry-warnings"):
         celery.conf.beat_schedule.pop(_key, None)
 
+# Anonymous deployment heartbeat — only scheduled when the admin has opted in,
+# so an opt-out deployment never even registers the task with beat.
+if settings.telemetry_enabled:
+    celery.conf.beat_schedule["telemetry-daily-heartbeat"] = {
+        "task": "tasks.telemetry.send_heartbeat",
+        "schedule": crontab(hour=7, minute=23),  # daily, off-peak, non-round minute
+    }
+
 # Alias for import convenience
 celery_app = celery

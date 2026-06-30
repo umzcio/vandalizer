@@ -1,5 +1,30 @@
 import { apiFetch } from './client'
 
+// Fleet telemetry analytics (collector instance only)
+
+export interface NamedDeployment {
+  organization: string
+  version: string
+  environment: string
+  last_seen: string
+  active: boolean
+}
+
+export interface TelemetryAnalytics {
+  total_instances: number
+  active_instances_30d: number
+  named_instances: number
+  anonymous_instances: number
+  by_version: Record<string, number>
+  by_environment: Record<string, number>
+  users_buckets: Record<string, number>
+  named_deployments: NamedDeployment[]
+}
+
+export function getTelemetryAnalytics() {
+  return apiFetch<TelemetryAnalytics>('/api/telemetry/analytics')
+}
+
 // Version / update check
 
 export interface VersionStatus {
