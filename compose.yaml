@@ -130,6 +130,7 @@ services:
           cpus: "4.0"
 
   frontend:
+    container_name: vandalizer-frontend
     build:
       context: ./frontend
       dockerfile: Dockerfile
@@ -137,17 +138,18 @@ services:
         VITE_SENTRY_DSN: ${VITE_SENTRY_DSN:-}
         VITE_SENTRY_ENVIRONMENT: ${VITE_SENTRY_ENVIRONMENT:-}
         VITE_SENTRY_RELEASE: ${VITE_SENTRY_RELEASE:-}
-    ports:
-      - "${WEB_PORT:-80}:80"
     depends_on:
       - api
     networks:
       - vandalizer
+      - proxy-net
     restart: unless-stopped
 
 networks:
   vandalizer:
     driver: bridge
+  proxy-net:
+    external: true
 
 volumes:
   mongo-data:
