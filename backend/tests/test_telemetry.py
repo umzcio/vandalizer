@@ -77,8 +77,12 @@ def test_bucket_boundaries(n, expected):
 
 
 def test_coarse_environment_only_prod_or_other():
-    assert tx._coarse_environment(Settings(environment="production")) == "production"
-    assert tx._coarse_environment(Settings(environment="staging")) == "other"
+    # A real jwt_secret_key is required to construct Settings in a non-development
+    # environment (the _check_jwt_secret validator rejects the "change-me" default),
+    # so supply one here — CI has no .env to provide it.
+    secret = {"jwt_secret_key": "test-secret"}
+    assert tx._coarse_environment(Settings(environment="production", **secret)) == "production"
+    assert tx._coarse_environment(Settings(environment="staging", **secret)) == "other"
     assert tx._coarse_environment(Settings(environment="development")) == "other"
 
 
