@@ -62,6 +62,7 @@ import type {
   CertificationProgressItem,
 } from '../api/admin'
 import { relativeTime } from '../utils/time'
+import { fileToConstrainedDataUrl } from '../utils/imageResize'
 import { ModelCharacterBars } from '../components/ModelEffortPicker'
 import type { ModelInfo } from '../types/workflow'
 import * as auditApi from '../api/audit'
@@ -84,15 +85,6 @@ function applyThemeToDOM(theme: ThemeConfig) {
 }
 
 const MAX_LOGO_BYTES = 500_000 // matches backend cap on the encoded data URL
-
-function readFileAsDataUrl(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : '')
-    reader.onerror = () => reject(reader.error || new Error('Failed to read file'))
-    reader.readAsDataURL(file)
-  })
-}
 
 type Tab = 'usage' | 'users' | 'teams' | 'organizations' | 'workflows' | 'quality' | 'knowledgebases' | 'compliance' | 'audit' | 'demo' | 'email' | 'certifications' | 'apikeys' | 'catalog' | 'telemetry' | 'config'
 
@@ -2665,6 +2657,7 @@ function ConfigTab() {
   const [themeLogoError, setThemeLogoError] = useState<string | null>(null)
   const [themeIcon, setThemeIcon] = useState('')
   const [themeIconError, setThemeIconError] = useState<string | null>(null)
+  const [themeIconHideInNav, setThemeIconHideInNav] = useState(false)
   const [themeSaving, setThemeSaving] = useState(false)
   const [themeSaved, setThemeSaved] = useState(false)
 
@@ -2831,6 +2824,7 @@ function ConfigTab() {
       setThemeOrgName(t.org_name || '')
       setThemeLogo(t.logo_data_url || '')
       setThemeIcon(t.icon_data_url || '')
+      setThemeIconHideInNav(!!t.icon_hide_in_nav)
     }).catch(() => {})
   }, [])
 
@@ -2887,6 +2881,7 @@ function ConfigTab() {
         org_name: themeOrgName.trim(),
         logo_data_url: themeLogo,
         icon_data_url: themeIcon,
+        icon_hide_in_nav: themeIconHideInNav,
       })
       applyThemeToDOM(updated)
       await branding.refresh()
@@ -2905,14 +2900,16 @@ function ConfigTab() {
       return
     }
     try {
-      const dataUrl = await readFileAsDataUrl(file)
+      // Auto-downscale oversized raster images so large exports "just work".
+      const dataUrl = await fileToConstrainedDataUrl(file, { maxBytes: MAX_LOGO_BYTES, maxDimension: 1024 })
+      // Safety net for the rare oversized SVG, which is passed through unresized.
       if (dataUrl.length > MAX_LOGO_BYTES) {
         setThemeLogoError(`Image too large — keep encoded size under ${Math.round(MAX_LOGO_BYTES / 1024)} KB.`)
         return
       }
       setThemeLogo(dataUrl)
     } catch {
-      setThemeLogoError('Could not read the selected file.')
+      setThemeLogoError('Could not process the selected image. Try a different file.')
     }
   }
 
@@ -2924,14 +2921,17 @@ function ConfigTab() {
       return
     }
     try {
-      const dataUrl = await readFileAsDataUrl(file)
+      // Icons/mascots are square-ish and small in the UI, so a tighter max
+      // dimension keeps them well under the cap while staying crisp.
+      const dataUrl = await fileToConstrainedDataUrl(file, { maxBytes: MAX_LOGO_BYTES, maxDimension: 512 })
+      // Safety net for the rare oversized SVG, which is passed through unresized.
       if (dataUrl.length > MAX_LOGO_BYTES) {
         setThemeIconError(`Image too large — keep encoded size under ${Math.round(MAX_LOGO_BYTES / 1024)} KB.`)
         return
       }
       setThemeIcon(dataUrl)
     } catch {
-      setThemeIconError('Could not read the selected file.')
+      setThemeIconError('Could not process the selected image. Try a different file.')
     }
   }
 
@@ -4041,7 +4041,7 @@ ${playgroundResult.request.user_prompt}`}
                 </div>
               </div>
               <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 6 }}>
-                Wordmark-style image works best. PNG with transparency recommended. Max ~{Math.round(MAX_LOGO_BYTES / 1024)} KB encoded.
+                Wordmark-style image works best. PNG with transparency recommended. Large images are automatically resized to fit.
               </div>
               {themeLogoError && (
                 <div style={{ fontSize: 12, color: '#b91c1c', marginTop: 6 }}>{themeLogoError}</div>
@@ -4093,6 +4093,14 @@ ${playgroundResult.request.user_prompt}`}
               <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 6 }}>
                 Small square mark shown beside the logo (header & chat) and as the browser-tab favicon. A square, transparent PNG works best. The default Joe Vandal mark shows only on un-branded deployments — once you set an organization name or logo, leave this blank to hide it, or upload your own.
               </div>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: '#374151', marginTop: 8, cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={themeIconHideInNav}
+                  onChange={e => setThemeIconHideInNav(e.target.checked)}
+                />
+                Hide icon from the navigation header (still used as favicon and chat avatar)
+              </label>
               {themeIconError && (
                 <div style={{ fontSize: 12, color: '#b91c1c', marginTop: 6 }}>{themeIconError}</div>
               )}

@@ -7,6 +7,28 @@ export const DEFAULT_LOGO_URL = '/images/Vandalizer_Wordmark_RGB.png'
 export const DEFAULT_LOGO_DARK_URL = '/images/Vandalizer_Wordmark_Color_RGB+W.png'
 export const DEFAULT_ICON_URL = '/images/joevandal.png'
 
+// The last-known theme is cached here so the app can paint the custom brand on
+// the first frame instead of flashing the defaults while GET /theme is in
+// flight. Kept in sync with the inline bootstrap script in index.html.
+const THEME_CACHE_KEY = 'vandalizer.theme'
+
+function readCachedTheme(): ThemeConfig | null {
+  try {
+    const raw = localStorage.getItem(THEME_CACHE_KEY)
+    return raw ? (JSON.parse(raw) as ThemeConfig) : null
+  } catch {
+    return null
+  }
+}
+
+function writeCachedTheme(theme: ThemeConfig): void {
+  try {
+    localStorage.setItem(THEME_CACHE_KEY, JSON.stringify(theme))
+  } catch {
+    /* storage unavailable (private mode / quota) — caching is best-effort */
+  }
+}
+
 export interface Branding {
   /** Display name for this deployment. Always non-empty (falls back to "Vandalizer"). */
   orgName: string
@@ -22,6 +44,8 @@ export interface Branding {
    *   NOT leak onto a white-labeled deployment. Render the icon only when set.
    */
   iconUrl: string | null
+  /** When true, hide the icon from the nav header (still used as favicon + chat avatar). */
+  hideIconInNav: boolean
   /** True when the admin has overridden the default name. Used to surface "Powered by Vandalizer" attribution. */
   isCustomized: boolean
   /** Re-fetch from server (called by admin after saving theme). */
@@ -49,6 +73,7 @@ function resolve(theme: ThemeConfig | null): Omit<Branding, 'refresh'> {
     logoUrl: customLogo || DEFAULT_LOGO_URL,
     logoDarkUrl: customLogo || DEFAULT_LOGO_DARK_URL,
     iconUrl: customIcon || (isCustomized ? null : DEFAULT_ICON_URL),
+    hideIconInNav: !!theme?.icon_hide_in_nav,
     isCustomized,
   }
 }
@@ -66,7 +91,15 @@ function applyFavicon(iconUrl: string | null) {
 }
 
 export function BrandingProvider({ children }: { children: ReactNode }) {
-  const [state, setState] = useState<Omit<Branding, 'refresh'>>(() => resolve(null))
+  // Seed from the cached theme so the first render paints the custom brand
+  // instead of the defaults. The inline script in index.html already applied
+  // the primary color + favicon before the bundle loaded; here we also set the
+  // derived CSS variables (button text/hover) so they're correct on frame one.
+  const [state, setState] = useState<Omit<Branding, 'refresh'>>(() => {
+    const cached = readCachedTheme()
+    if (cached) applyTheme(cached)
+    return resolve(cached)
+  })
 
   const load = useCallback(async () => {
     try {
@@ -75,8 +108,9 @@ export function BrandingProvider({ children }: { children: ReactNode }) {
       const resolved = resolve(theme)
       applyFavicon(resolved.iconUrl)
       setState(resolved)
+      writeCachedTheme(theme)
     } catch {
-      // Keep defaults if fetch fails (e.g., not logged in or backend down).
+      // Keep current state if fetch fails (e.g., not logged in or backend down).
     }
   }, [])
 
@@ -104,6 +138,7 @@ export function useBranding(): Branding {
       logoUrl: DEFAULT_LOGO_URL,
       logoDarkUrl: DEFAULT_LOGO_DARK_URL,
       iconUrl: DEFAULT_ICON_URL,
+      hideIconInNav: false,
       isCustomized: false,
       refresh: async () => {},
     }
