@@ -120,7 +120,7 @@ export function CatalogCoverageTab() {
       </div>
 
       {loading ? (
-        <div className="text-sm text-gray-500 py-8 text-center">Loading…</div>
+        <div role="status" aria-live="polite" className="text-sm text-gray-500 py-8 text-center">Loading…</div>
       ) : items.length === 0 ? (
         <div className="text-sm text-gray-500 py-12 text-center">
           {coverage ? `No items with coverage "${COVERAGE_LABEL[coverage]}".` : 'No verified items.'}
@@ -163,7 +163,7 @@ export function CatalogCoverageTab() {
                       {it.official_baseline_score != null ? (
                         <div>
                           <div>{Math.round(it.official_baseline_score)}% pinned</div>
-                          <div className="text-[10px] text-gray-400">{it.official_baseline_test_case_count} case(s)</div>
+                          <div className="text-[10px] text-gray-500">{it.official_baseline_test_case_count} case(s)</div>
                         </div>
                       ) : '—'}
                     </td>
@@ -172,7 +172,7 @@ export function CatalogCoverageTab() {
                         <div>
                           <div>{new Date(it.last_drift_check_at).toLocaleDateString()}</div>
                           {driftDelta != null && (
-                            <div className={`text-[10px] ${driftDelta >= 10 ? 'text-red-600' : driftDelta >= 5 ? 'text-amber-600' : 'text-gray-400'}`}>
+                            <div className={`text-[10px] ${driftDelta >= 10 ? 'text-red-600' : driftDelta >= 5 ? 'text-amber-600' : 'text-gray-500'}`}>
                               {driftDelta > 0 ? `-${driftDelta.toFixed(1)} pts` : 'stable'}
                             </div>
                           )}

@@ -491,7 +491,10 @@ export function FileBrowser({ onDocClick, searchQuery = '', contentMatches, onSe
       {/* + Add button with dropdown menu - matches Flask _add_button.html */}
       <div ref={addMenuRef} className="relative inline-block mt-4">
         <button
+          type="button"
           onClick={() => setAddMenuOpen(!addMenuOpen)}
+          aria-expanded={addMenuOpen}
+          aria-haspopup="menu"
           className="flex items-center gap-1 rounded-[var(--ui-radius)] bg-highlight text-highlight-text px-3 py-1.5 text-sm font-bold hover:brightness-90 transition-all"
           style={{ borderRadius: 'var(--ui-radius, 12px)' }}
         >
@@ -501,6 +504,9 @@ export function FileBrowser({ onDocClick, searchQuery = '', contentMatches, onSe
 
         {addMenuOpen && (
           <div
+            role="menu"
+            aria-label="Add"
+            onKeyDown={(e) => { if (e.key === 'Escape') setAddMenuOpen(false) }}
             className="absolute left-0 z-[1000] mt-2 min-w-[180px] rounded-lg border bg-white p-1.5"
             style={{
               borderColor: 'rgba(0,0,0,.15)',
@@ -508,6 +514,8 @@ export function FileBrowser({ onDocClick, searchQuery = '', contentMatches, onSe
             }}
           >
             <button
+              role="menuitem"
+              type="button"
               onClick={() => {
                 setShowCreateFolder(true)
                 setAddMenuOpen(false)
@@ -518,6 +526,8 @@ export function FileBrowser({ onDocClick, searchQuery = '', contentMatches, onSe
               <span>New Folder</span>
             </button>
             <button
+              role="menuitem"
+              type="button"
               onClick={() => {
                 setCreateTeamFolder(true)
                 setShowCreateFolder(true)
@@ -529,6 +539,8 @@ export function FileBrowser({ onDocClick, searchQuery = '', contentMatches, onSe
               <span>New Team Folder</span>
             </button>
             <button
+              role="menuitem"
+              type="button"
               onClick={() => {
                 fileInputRef.current?.click()
                 setAddMenuOpen(false)

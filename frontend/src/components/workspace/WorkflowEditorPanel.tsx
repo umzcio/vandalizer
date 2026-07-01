@@ -632,6 +632,7 @@ export function WorkflowEditorPanel() {
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           {editingTitle ? (
             <input
+              aria-label="Workflow name"
               ref={titleInputRef}
               value={titleValue}
               maxLength={MAX_NAME_LENGTH}
@@ -655,7 +656,7 @@ export function WorkflowEditorPanel() {
               <span style={{ fontSize: 18, fontWeight: 600, color: '#202124', letterSpacing: '-0.01em' }}>
                 {workflow.name}
               </span>
-              <Pencil style={{ width: 14, height: 14, color: '#9ca3af' }} />
+              <Pencil style={{ width: 14, height: 14, color: '#6b7280' }} />
               {((workflow as Workflow & { verified?: boolean }).verified || !canManage) && (
                 <span
                   title={
@@ -676,13 +677,14 @@ export function WorkflowEditorPanel() {
                 </>
               )}
               {qualityStatus?.last_validated_at && (
-                <span style={{ fontSize: 11, color: '#9ca3af', whiteSpace: 'nowrap' }}>
+                <span style={{ fontSize: 11, color: '#6b7280', whiteSpace: 'nowrap' }}>
                   Validated {relativeTime(qualityStatus.last_validated_at)}
                 </span>
               )}
             </div>
           )}
           <input
+            aria-label="Import workflow JSON file"
             ref={importInputRef}
             type="file"
             accept=".json"
@@ -717,6 +719,8 @@ export function WorkflowEditorPanel() {
           />
           {canManage && (
             <button
+              type="button"
+              aria-label="Copy share link"
               onClick={() => shareLink('workflow', workflow.id, workflow.name)}
               title="Copy share link"
               style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, borderRadius: 4, color: '#5f6368', display: 'flex', flexShrink: 0 }}
@@ -725,6 +729,8 @@ export function WorkflowEditorPanel() {
             </button>
           )}
           <button
+            type="button"
+            aria-label="Close workflow"
             onClick={closeWorkflow}
             style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, borderRadius: 4, color: '#5f6368', display: 'flex', flexShrink: 0 }}
           >
@@ -733,6 +739,7 @@ export function WorkflowEditorPanel() {
         </div>
         {editingDesc ? (
           <textarea
+            aria-label="Workflow description"
             ref={descInputRef}
             value={descValue}
             rows={2}
@@ -757,12 +764,12 @@ export function WorkflowEditorPanel() {
             style={{ display: 'flex', alignItems: 'flex-start', gap: 6, cursor: 'pointer', fontSize: 13, color: '#5f6368', marginTop: 4 }}
           >
             <span>{workflow.description}</span>
-            <Pencil style={{ width: 12, height: 12, color: '#9ca3af', flexShrink: 0, marginTop: 2 }} />
+            <Pencil style={{ width: 12, height: 12, color: '#6b7280', flexShrink: 0, marginTop: 2 }} />
           </div>
         ) : canManage ? (
           <div
             onClick={() => { setDescValue(''); setEditingDesc(true) }}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 13, color: '#9ca3af', marginTop: 4 }}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 13, color: '#6b7280', marginTop: 4 }}
           >
             <Pencil style={{ width: 12, height: 12 }} />
             <span>Add a description</span>
@@ -771,7 +778,7 @@ export function WorkflowEditorPanel() {
       </div>
 
       {/* ===== TAB BAR ===== */}
-      <div ref={tabBarRef} style={{ display: 'flex', borderBottom: '1px solid #e5e7eb', padding: tabsCompact ? '0 8px' : '0 24px', backgroundColor: '#fff', flexShrink: 0 }}>
+      <div ref={tabBarRef} role="tablist" aria-label="Workflow editor sections" style={{ display: 'flex', borderBottom: '1px solid #e5e7eb', padding: tabsCompact ? '0 8px' : '0 24px', backgroundColor: '#fff', flexShrink: 0 }}>
         {TABS.map(tab => {
           const TabIcon = tab.icon
           const badge = tab.key === 'input' ? inputBadge : 0
@@ -785,6 +792,12 @@ export function WorkflowEditorPanel() {
           return (
             <button
               key={tab.key}
+              type="button"
+              role="tab"
+              id={`wf-tab-${tab.key}`}
+              aria-selected={activeTab === tab.key}
+              aria-controls="wf-tabpanel"
+              tabIndex={activeTab === tab.key ? 0 : -1}
               onClick={() => setActiveTab(tab.key)}
               title={tab.label}
               style={{
@@ -827,7 +840,7 @@ export function WorkflowEditorPanel() {
       </div>
 
       {/* ===== TAB CONTENT ===== */}
-      <div style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
+      <div id="wf-tabpanel" role="tabpanel" aria-labelledby={`wf-tab-${activeTab}`} style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
         {activeTab === 'design' && (
           <>
             <DesignCanvas
@@ -855,7 +868,7 @@ export function WorkflowEditorPanel() {
                       borderRadius: 8, backgroundColor: '#fafafa',
                       display: 'flex', alignItems: 'center', gap: 12,
                     }}>
-                      <ShieldCheck style={{ width: 20, height: 20, color: '#9ca3af', flexShrink: 0 }} />
+                      <ShieldCheck style={{ width: 20, height: 20, color: '#6b7280', flexShrink: 0 }} />
                       <div style={{ flex: 1 }}>
                         <div style={{ fontSize: 13, fontWeight: 600, color: '#374151' }}>No validation data yet</div>
                         <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>
@@ -890,7 +903,7 @@ export function WorkflowEditorPanel() {
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                         <QualityBadge tier={qualityStatus.tier} score={qualityStatus.score} />
                         {qualityStatus.last_validated_at && (
-                          <span style={{ fontSize: 11, color: '#9ca3af' }}>
+                          <span style={{ fontSize: 11, color: '#6b7280' }}>
                             {relativeTime(qualityStatus.last_validated_at)}
                           </span>
                         )}
@@ -962,13 +975,15 @@ export function WorkflowEditorPanel() {
             Validate
           </button>
           <button
+            type="button"
+            aria-label="Dismiss"
             onClick={() => {
               setNudgeDismissed(true)
               if (openWorkflowId) localStorage.setItem(`quality-nudge-dismissed-wf-${openWorkflowId}`, '1')
             }}
             style={{
               background: 'none', border: 'none', cursor: 'pointer', padding: 2,
-              color: '#9ca3af', display: 'flex',
+              color: '#6b7280', display: 'flex',
             }}
           >
             <X style={{ width: 12, height: 12 }} />
@@ -985,6 +1000,7 @@ export function WorkflowEditorPanel() {
               Text Input
             </div>
             <textarea
+              aria-label="Text to process"
               value={textInput}
               onChange={e => setTextInput(e.target.value)}
               placeholder="Paste or type the text to process..."
@@ -1048,7 +1064,7 @@ export function WorkflowEditorPanel() {
           >
             {runner.cancelling ? (
               <>
-                <Loader2 style={{ width: 16, height: 16, animation: 'spin 1s linear infinite' }} />
+                <Loader2 aria-hidden="true" style={{ width: 16, height: 16, animation: 'spin 1s linear infinite' }} />
                 STOPPING
               </>
             ) : (
@@ -1076,7 +1092,7 @@ export function WorkflowEditorPanel() {
           >
             {runner.running ? (
               <>
-                <Loader2 style={{ width: 16, height: 16, animation: 'spin 1s linear infinite' }} />
+                <Loader2 aria-hidden="true" style={{ width: 16, height: 16, animation: 'spin 1s linear infinite' }} />
                 {runner.batchId ? 'BATCH RUNNING' : 'WORKFLOW RUNNING'}
               </>
             ) : (
@@ -1104,7 +1120,7 @@ export function WorkflowEditorPanel() {
           >
             {duplicating ? (
               <>
-                <Loader2 style={{ width: 14, height: 14, animation: 'spin 1s linear infinite' }} />
+                <Loader2 aria-hidden="true" style={{ width: 14, height: 14, animation: 'spin 1s linear infinite' }} />
                 Saving copy…
               </>
             ) : (
@@ -1164,6 +1180,7 @@ export function WorkflowEditorPanel() {
           }}>
             <div style={{ fontSize: 16, fontWeight: 600, color: '#202124', marginBottom: 16 }}>New Step</div>
             <input
+              aria-label="Step name"
               ref={newStepInputRef}
               value={newStepName}
               onChange={e => setNewStepName(e.target.value)}
@@ -1235,6 +1252,8 @@ function PanelHeader({ title, onClose }: { title: string; onClose: () => void })
     }}>
       <div style={{ fontSize: 18, fontWeight: 600, color: '#202124', letterSpacing: '-0.01em' }}>{title}</div>
       <button
+        type="button"
+        aria-label="Close"
         onClick={onClose}
         style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, borderRadius: 4, color: '#5f6368', display: 'flex' }}
       >
@@ -1511,7 +1530,7 @@ function StepCard({ step, index, totalSteps, isImplicitOutput, isActive, onClick
               </span>
             )}
             {isActive && (
-              <Loader2 style={{
+              <Loader2 aria-hidden="true" style={{
                 width: 14, height: 14, marginLeft: 8,
                 animation: 'spin 1s linear infinite',
                 display: 'inline', verticalAlign: 'middle',
@@ -1526,6 +1545,8 @@ function StepCard({ step, index, totalSteps, isImplicitOutput, isActive, onClick
         {/* Move up/down buttons */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 2, flexShrink: 0 }} onClick={e => e.stopPropagation()}>
           <button
+            type="button"
+            aria-label="Move step up"
             onClick={onMoveUp}
             disabled={index === 0}
             style={{
@@ -1538,6 +1559,8 @@ function StepCard({ step, index, totalSteps, isImplicitOutput, isActive, onClick
             <ArrowUp style={{ width: 14, height: 14 }} />
           </button>
           <button
+            type="button"
+            aria-label="Move step down"
             onClick={onMoveDown}
             disabled={index === totalSteps - 1}
             style={{
@@ -1609,7 +1632,12 @@ function StepLastRunOutput({ step, stepsOutput, lastRunMeta }: {
   return (
     <div style={{ marginTop: 24 }}>
       <div
+        role="button"
+        tabIndex={0}
+        aria-expanded={expanded}
+        aria-controls="last-run-output-panel"
         onClick={() => setExpanded(e => !e)}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setExpanded(x => !x) } }}
         style={{
           display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer',
           fontSize: 12, fontWeight: 600, color: '#6b7280',
@@ -1621,7 +1649,7 @@ function StepLastRunOutput({ step, stepsOutput, lastRunMeta }: {
       </div>
 
       {expanded && (
-        <div style={{
+        <div id="last-run-output-panel" style={{
           border: '1px solid #e5e7eb', borderRadius: 8, padding: 16, backgroundColor: '#fafafa',
         }}>
           {/* Caption */}
@@ -1655,7 +1683,7 @@ function StepLastRunOutput({ step, stepsOutput, lastRunMeta }: {
               </pre>
             )
           ) : (
-            <div style={{ fontSize: 13, color: '#9ca3af' }}>
+            <div style={{ fontSize: 13, color: '#6b7280' }}>
               {stepsOutput
                 ? 'This step produced no output on the last run.'
                 : "This step hasn't produced output yet. Run the workflow to see its last output here."}
@@ -1723,6 +1751,7 @@ function EditStepOverlay({
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           {editingName ? (
             <input
+              aria-label="Workflow name"
               ref={nameInputRef}
               value={nameValue}
               onChange={e => setNameValue(e.target.value)}
@@ -1743,10 +1772,10 @@ function EditStepOverlay({
               onClick={() => { setNameValue(step.name); setEditingName(true) }}
             >
               <span style={{ fontSize: 18, fontWeight: 600, color: '#202124' }}>{step.name}</span>
-              <Pencil style={{ width: 14, height: 14, color: '#9ca3af' }} />
+              <Pencil style={{ width: 14, height: 14, color: '#6b7280' }} />
             </div>
           )}
-          <button onClick={onClose} style={{
+          <button type="button" aria-label="Close" onClick={onClose} style={{
             background: 'none', border: 'none', cursor: 'pointer', padding: 4, color: '#5f6368', display: 'flex',
           }}>
             <X style={{ width: 20, height: 20 }} />
@@ -1772,6 +1801,7 @@ function EditStepOverlay({
           borderRadius: 8, backgroundColor: step.is_output ? '#f5f3ff' : '#fff',
         }}>
           <input
+            aria-label="Mark step as workflow output"
             type="checkbox"
             checked={step.is_output}
             onChange={e => onToggleOutput(step.id, e.target.checked)}
@@ -1839,8 +1869,8 @@ function EditStepOverlay({
                       : task.name}
                   </div>
                 </div>
-                <button onClick={(e) => { e.stopPropagation(); onDeleteTask(task.id) }} style={{
-                  background: 'none', border: 'none', cursor: 'pointer', padding: 4, color: '#9ca3af', display: 'flex',
+                <button type="button" aria-label="Delete task" onClick={(e) => { e.stopPropagation(); onDeleteTask(task.id) }} style={{
+                  background: 'none', border: 'none', cursor: 'pointer', padding: 4, color: '#6b7280', display: 'flex',
                 }}>
                   <Trash2 style={{ width: 14, height: 14 }} />
                 </button>
@@ -1957,7 +1987,7 @@ function TaskTypePicker({ category, setCategory, onSelect, onClose }: {
       <div style={{ padding: '16px 24px', borderBottom: '1px solid #e5e7eb', flexShrink: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <span style={{ fontSize: 18, fontWeight: 600, color: '#202124' }}>Add a Task</span>
-          <button onClick={onClose} style={{
+          <button type="button" aria-label="Close" onClick={onClose} style={{
             background: 'none', border: 'none', cursor: 'pointer', padding: 4, color: '#5f6368', display: 'flex',
           }}>
             <X style={{ width: 20, height: 20 }} />
@@ -2051,7 +2081,7 @@ function TaskTypePicker({ category, setCategory, onSelect, onClose }: {
             <>
               <div style={{
                 margin: '24px 0 12px', fontSize: 11, fontWeight: 700, textTransform: 'uppercase',
-                color: '#9ca3af', letterSpacing: '0.5px',
+                color: '#6b7280', letterSpacing: '0.5px',
               }}>
                 Coming Soon
               </div>
@@ -2083,11 +2113,11 @@ function TaskTypePicker({ category, setCategory, onSelect, onClose }: {
                         backgroundColor: '#f3f4f6',
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
                       }}>
-                        <Icon style={{ width: 20, height: 20, color: '#9ca3af' }} />
+                        <Icon style={{ width: 20, height: 20, color: '#6b7280' }} />
                       </div>
                       <span style={{
                         fontSize: 12, fontWeight: 600, textAlign: 'center',
-                        color: '#9ca3af',
+                        color: '#6b7280',
                       }}>
                         {taskType.label}
                       </span>
@@ -2191,10 +2221,11 @@ function ExtractionTagInput({ tags, onChange }: { tags: string[]; onChange: (tag
           {tag}
           <button
             type="button"
+            aria-label="Remove tag"
             onClick={(e) => { e.stopPropagation(); removeTag(i) }}
             style={{
               background: 'none', border: 'none', cursor: 'pointer', padding: 0,
-              color: '#9ca3af', display: 'flex', alignItems: 'center',
+              color: '#6b7280', display: 'flex', alignItems: 'center',
             }}
           >
             <X style={{ width: 12, height: 12 }} />
@@ -2202,6 +2233,7 @@ function ExtractionTagInput({ tags, onChange }: { tags: string[]; onChange: (tag
         </span>
       ))}
       <input
+        aria-label="Add extraction field"
         ref={inputRef}
         type="text"
         value={inputValue}
@@ -2773,7 +2805,7 @@ function TaskEditModal({ task, selectedDocUuids, workflow, workflowId, onClose, 
               </div>
             </div>
           </div>
-          <button onClick={onClose} style={{
+          <button type="button" aria-label="Close" onClick={onClose} style={{
             background: 'none', border: 'none', cursor: 'pointer', padding: 4, color: '#5f6368', display: 'flex',
           }}>
             <X style={{ width: 20, height: 20 }} />
@@ -2781,10 +2813,16 @@ function TaskEditModal({ task, selectedDocUuids, workflow, workflowId, onClose, 
         </div>
 
         {/* Sub-tab bar */}
-        <div style={{ display: 'flex', gap: 0, marginTop: 12 }}>
+        <div role="tablist" aria-label="Task configuration sections" style={{ display: 'flex', gap: 0, marginTop: 12 }}>
           {SUB_TABS.map(st => (
             <button
               key={st.key}
+              type="button"
+              role="tab"
+              id={`task-subtab-${st.key}`}
+              aria-selected={subTab === st.key}
+              aria-controls="task-subtabpanel"
+              tabIndex={subTab === st.key ? 0 : -1}
               onClick={() => setSubTab(st.key)}
               style={{
                 padding: '8px 16px', fontSize: 12, fontWeight: subTab === st.key ? 700 : 500,
@@ -2803,7 +2841,7 @@ function TaskEditModal({ task, selectedDocUuids, workflow, workflowId, onClose, 
       </div>
 
       {/* Body */}
-      <div style={{ flex: 1, overflowY: 'auto', padding: 20 }}>
+      <div id="task-subtabpanel" role="tabpanel" aria-labelledby={`task-subtab-${subTab}`} style={{ flex: 1, overflowY: 'auto', padding: 20 }}>
         {/* ===== DESIGN SUB-TAB ===== */}
         {subTab === 'design' && (
           <div>
@@ -2819,13 +2857,13 @@ function TaskEditModal({ task, selectedDocUuids, workflow, workflowId, onClose, 
                     style={{
                       width: '100%', padding: '8px 12px', fontSize: 13, fontFamily: 'inherit',
                       border: '1px solid #d1d5db', borderRadius: 6, backgroundColor: '#fff',
-                      color: getTextValue('search_set_uuid') ? '#374151' : '#9ca3af',
+                      color: getTextValue('search_set_uuid') ? '#374151' : '#6b7280',
                       cursor: 'pointer', textAlign: 'left', display: 'flex',
                       alignItems: 'center', justifyContent: 'space-between',
                     }}
                   >
                     <span>{getTextValue('name') && getTextValue('search_set_uuid') ? getTextValue('name') : 'Browse extractions...'}</span>
-                    <ChevronDown style={{ width: 14, height: 14, color: '#9ca3af', flexShrink: 0 }} />
+                    <ChevronDown style={{ width: 14, height: 14, color: '#6b7280', flexShrink: 0 }} />
                   </button>
                   {showSetPicker && (
                     <ItemPickerModal
@@ -2870,10 +2908,10 @@ function TaskEditModal({ task, selectedDocUuids, workflow, workflowId, onClose, 
                       }}
                     >
                       {linkedSetLoading && linkedSetItems.length === 0 && (
-                        <span style={{ fontSize: 12, color: '#9ca3af', padding: '4px 6px' }}>Loading fields…</span>
+                        <span style={{ fontSize: 12, color: '#6b7280', padding: '4px 6px' }}>Loading fields…</span>
                       )}
                       {!linkedSetLoading && linkedSetItems.length === 0 && (
-                        <span style={{ fontSize: 12, color: '#9ca3af', padding: '4px 6px' }}>No fields in this saved set</span>
+                        <span style={{ fontSize: 12, color: '#6b7280', padding: '4px 6px' }}>No fields in this saved set</span>
                       )}
                       {linkedSetItems.map(item => (
                         <span
@@ -2915,7 +2953,7 @@ function TaskEditModal({ task, selectedDocUuids, workflow, workflowId, onClose, 
                         }}
                       >
                         {suggestingFields ? (
-                          <Loader2 style={{ width: 11, height: 11 }} className="animate-spin" />
+                          <Loader2 aria-hidden="true" style={{ width: 11, height: 11 }} className="animate-spin" />
                         ) : (
                           <Sparkles style={{ width: 11, height: 11 }} />
                         )}
@@ -2927,7 +2965,7 @@ function TaskEditModal({ task, selectedDocUuids, workflow, workflowId, onClose, 
                       onChange={(tags) => setTaskData(prev => ({ ...prev, extractions: tags }))}
                     />
                     {suggestError && (
-                      <div style={{ marginTop: 6, fontSize: 12, color: '#b91c1c' }}>
+                      <div role="alert" style={{ marginTop: 6, fontSize: 12, color: '#b91c1c' }}>
                         {suggestError}
                       </div>
                     )}
@@ -2944,6 +2982,7 @@ function TaskEditModal({ task, selectedDocUuids, workflow, workflowId, onClose, 
                     Extraction Name
                   </label>
                   <input
+                    aria-label="Extraction task name"
                     type="text"
                     value={getTextValue('name')}
                     onChange={e => setTextValue('name', e.target.value)}
@@ -2965,6 +3004,7 @@ function TaskEditModal({ task, selectedDocUuids, workflow, workflowId, onClose, 
                     Prompt Name
                   </label>
                   <input
+                    aria-label="Prompt task name"
                     type="text"
                     value={getTextValue('name')}
                     onChange={e => setTextValue('name', e.target.value)}
@@ -2986,13 +3026,13 @@ function TaskEditModal({ task, selectedDocUuids, workflow, workflowId, onClose, 
                     style={{
                       width: '100%', padding: '8px 12px', fontSize: 13, fontFamily: 'inherit',
                       border: '1px solid #d1d5db', borderRadius: 6, backgroundColor: '#fff',
-                      color: savedPromptUuid ? '#374151' : '#9ca3af',
+                      color: savedPromptUuid ? '#374151' : '#6b7280',
                       cursor: 'pointer', textAlign: 'left', display: 'flex',
                       alignItems: 'center', justifyContent: 'space-between',
                     }}
                   >
                     <span>{savedPromptUuid && getTextValue('name') ? getTextValue('name') : 'Browse prompts...'}</span>
-                    <ChevronDown style={{ width: 14, height: 14, color: '#9ca3af', flexShrink: 0 }} />
+                    <ChevronDown style={{ width: 14, height: 14, color: '#6b7280', flexShrink: 0 }} />
                   </button>
                   {showPromptPicker && (
                     <ItemPickerModal
@@ -3034,8 +3074,8 @@ function TaskEditModal({ task, selectedDocUuids, workflow, workflowId, onClose, 
                     whiteSpace: 'pre-wrap', lineHeight: 1.5, minHeight: 38,
                   }}>
                     {linkedSavedLoading
-                      ? <span style={{ color: '#9ca3af' }}>Loading prompt…</span>
-                      : linkedSavedBody || <span style={{ color: '#9ca3af' }}>This saved prompt has no content yet.</span>}
+                      ? <span style={{ color: '#6b7280' }}>Loading prompt…</span>
+                      : linkedSavedBody || <span style={{ color: '#6b7280' }}>This saved prompt has no content yet.</span>}
                   </div>
                 </div>
                 ) : (
@@ -3060,12 +3100,13 @@ function TaskEditModal({ task, selectedDocUuids, workflow, workflowId, onClose, 
                       title="Have the LLM suggest an improved version of this prompt"
                     >
                       {improving
-                        ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} />
+                        ? <Loader2 aria-hidden="true" size={12} style={{ animation: 'spin 1s linear infinite' }} />
                         : <Sparkles size={12} />}
                       {improving ? 'Thinking…' : 'Improve'}
                     </button>
                   </div>
                   <textarea
+                    aria-label="Prompt instructions"
                     value={getTextValue('prompt')}
                     onChange={e => setTextValue('prompt', e.target.value)}
                     placeholder="e.g., Summarize this for me into a todo list"
@@ -3078,7 +3119,7 @@ function TaskEditModal({ task, selectedDocUuids, workflow, workflowId, onClose, 
                     }}
                   />
                   {improveError && (
-                    <div style={{
+                    <div role="alert" style={{
                       marginTop: 8, padding: '8px 12px', background: '#fef2f2',
                       border: '1px solid #fecaca', borderRadius: 6, fontSize: 12, color: '#991b1b',
                     }}>
@@ -3169,13 +3210,13 @@ function TaskEditModal({ task, selectedDocUuids, workflow, workflowId, onClose, 
                     style={{
                       width: '100%', padding: '8px 12px', fontSize: 13, fontFamily: 'inherit',
                       border: '1px solid #d1d5db', borderRadius: 6, backgroundColor: '#fff',
-                      color: savedFormatterUuid ? '#374151' : '#9ca3af',
+                      color: savedFormatterUuid ? '#374151' : '#6b7280',
                       cursor: 'pointer', textAlign: 'left', display: 'flex',
                       alignItems: 'center', justifyContent: 'space-between',
                     }}
                   >
                     <span>{savedFormatterUuid && getTextValue('name') ? getTextValue('name') : 'Browse formatters...'}</span>
-                    <ChevronDown style={{ width: 14, height: 14, color: '#9ca3af', flexShrink: 0 }} />
+                    <ChevronDown style={{ width: 14, height: 14, color: '#6b7280', flexShrink: 0 }} />
                   </button>
                   {showFormatterPicker && (
                     <ItemPickerModal
@@ -3217,8 +3258,8 @@ function TaskEditModal({ task, selectedDocUuids, workflow, workflowId, onClose, 
                     whiteSpace: 'pre-wrap', lineHeight: 1.5, minHeight: 38,
                   }}>
                     {linkedSavedLoading
-                      ? <span style={{ color: '#9ca3af' }}>Loading formatter…</span>
-                      : linkedSavedBody || <span style={{ color: '#9ca3af' }}>This saved formatter has no content yet.</span>}
+                      ? <span style={{ color: '#6b7280' }}>Loading formatter…</span>
+                      : linkedSavedBody || <span style={{ color: '#6b7280' }}>This saved formatter has no content yet.</span>}
                   </div>
                 </div>
                 ) : (
@@ -3229,6 +3270,7 @@ function TaskEditModal({ task, selectedDocUuids, workflow, workflowId, onClose, 
                     Format Template
                   </label>
                   <textarea
+                    aria-label="Format template"
                     value={getTextValue('format_template') || getTextValue('prompt')}
                     onChange={e => setTextValue('format_template', e.target.value)}
                     placeholder="Enter your format template..."
@@ -3255,6 +3297,7 @@ function TaskEditModal({ task, selectedDocUuids, workflow, workflowId, onClose, 
                   URL
                 </label>
                 <input
+                  aria-label="URL"
                   type="text"
                   value={getTextValue('url')}
                   onChange={e => setTextValue('url', e.target.value)}
@@ -3288,6 +3331,7 @@ function TaskEditModal({ task, selectedDocUuids, workflow, workflowId, onClose, 
                     Image URL
                   </label>
                   <input
+                    aria-label="Image URL"
                     type="text"
                     value={getTextValue('image_url')}
                     onChange={e => setTextValue('image_url', e.target.value)}
@@ -3304,6 +3348,7 @@ function TaskEditModal({ task, selectedDocUuids, workflow, workflowId, onClose, 
                     Description Prompt
                   </label>
                   <textarea
+                    aria-label="Description prompt"
                     value={getTextValue('prompt')}
                     onChange={e => setTextValue('prompt', e.target.value)}
                     placeholder="Describe this image in detail."
@@ -3324,6 +3369,7 @@ function TaskEditModal({ task, selectedDocUuids, workflow, workflowId, onClose, 
                   Python Code
                 </label>
                 <textarea
+                  aria-label="Python code"
                   value={getTextValue('code')}
                   onChange={e => setTextValue('code', e.target.value)}
                   placeholder={'# Input data is available as `data`\n# Set `result` to your output\n\nresult = str(data).upper()'}
@@ -3349,6 +3395,7 @@ function TaskEditModal({ task, selectedDocUuids, workflow, workflowId, onClose, 
                     Starting URL
                   </label>
                   <input
+                    aria-label="Starting URL"
                     type="text"
                     value={getTextValue('start_url')}
                     onChange={e => setTextValue('start_url', e.target.value)}
@@ -3365,6 +3412,7 @@ function TaskEditModal({ task, selectedDocUuids, workflow, workflowId, onClose, 
                     Max Pages
                   </label>
                   <input
+                    aria-label="Maximum pages"
                     type="number"
                     value={getTextValue('max_pages') || '5'}
                     onChange={e => setTextValue('max_pages', e.target.value)}
@@ -3382,6 +3430,7 @@ function TaskEditModal({ task, selectedDocUuids, workflow, workflowId, onClose, 
                     Allowed Domains
                   </label>
                   <input
+                    aria-label="Allowed domains"
                     type="text"
                     value={getTextValue('allowed_domains')}
                     onChange={e => setTextValue('allowed_domains', e.target.value)}
@@ -3405,6 +3454,7 @@ function TaskEditModal({ task, selectedDocUuids, workflow, workflowId, onClose, 
                   Research Question / Topic
                 </label>
                 <textarea
+                  aria-label="Research question or topic"
                   value={getTextValue('question')}
                   onChange={e => setTextValue('question', e.target.value)}
                   placeholder="e.g., What are the main themes and conclusions in this data?"
@@ -3426,12 +3476,13 @@ function TaskEditModal({ task, selectedDocUuids, workflow, workflowId, onClose, 
                   </label>
                   <div style={{ position: 'relative' }}>
                     <select
+                      aria-label="Knowledge base"
                       value={getTextValue('kb_uuid')}
                       onChange={e => setTextValue('kb_uuid', e.target.value)}
                       style={{
                         width: '100%', padding: '8px 12px', fontSize: 13, fontFamily: 'inherit',
                         border: '1px solid #d1d5db', borderRadius: 6, backgroundColor: '#fff',
-                        color: getTextValue('kb_uuid') ? '#374151' : '#9ca3af',
+                        color: getTextValue('kb_uuid') ? '#374151' : '#6b7280',
                         appearance: 'none', paddingRight: 32,
                       }}
                     >
@@ -3444,7 +3495,7 @@ function TaskEditModal({ task, selectedDocUuids, workflow, workflowId, onClose, 
                     </select>
                     <ChevronDown style={{
                       position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)',
-                      width: 14, height: 14, color: '#9ca3af', pointerEvents: 'none',
+                      width: 14, height: 14, color: '#6b7280', pointerEvents: 'none',
                     }} />
                   </div>
                 </div>
@@ -3454,6 +3505,7 @@ function TaskEditModal({ task, selectedDocUuids, workflow, workflowId, onClose, 
                   </label>
                   <div style={{ position: 'relative' }}>
                     <select
+                      aria-label="Return type"
                       value={getTextValue('mode') || 'passages'}
                       onChange={e => setTextValue('mode', e.target.value)}
                       style={{
@@ -3467,7 +3519,7 @@ function TaskEditModal({ task, selectedDocUuids, workflow, workflowId, onClose, 
                     </select>
                     <ChevronDown style={{
                       position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)',
-                      width: 14, height: 14, color: '#9ca3af', pointerEvents: 'none',
+                      width: 14, height: 14, color: '#6b7280', pointerEvents: 'none',
                     }} />
                   </div>
                   <div style={{ fontSize: 11, color: '#6b7280', marginTop: 4 }}>
@@ -3480,6 +3532,7 @@ function TaskEditModal({ task, selectedDocUuids, workflow, workflowId, onClose, 
                     {(getTextValue('mode') || 'passages') === 'answer' ? 'Question' : 'Search Query'}
                   </label>
                   <textarea
+                    aria-label="Search query"
                     value={getTextValue('query')}
                     onChange={e => setTextValue('query', e.target.value)}
                     placeholder="e.g., What are the eligibility requirements?"
@@ -3501,6 +3554,7 @@ function TaskEditModal({ task, selectedDocUuids, workflow, workflowId, onClose, 
                       Results to retrieve
                     </label>
                     <input
+                      aria-label="Results to retrieve"
                       type="number"
                       min={1}
                       max={20}
@@ -3518,6 +3572,7 @@ function TaskEditModal({ task, selectedDocUuids, workflow, workflowId, onClose, 
                       Minimum relevance
                     </label>
                     <input
+                      aria-label="Minimum relevance"
                       type="number"
                       min={0}
                       max={1}
@@ -3545,6 +3600,7 @@ function TaskEditModal({ task, selectedDocUuids, workflow, workflowId, onClose, 
                     URL
                   </label>
                   <input
+                    aria-label="URL"
                     type="text"
                     value={getTextValue('url')}
                     onChange={e => setTextValue('url', e.target.value)}
@@ -3566,6 +3622,7 @@ function TaskEditModal({ task, selectedDocUuids, workflow, workflowId, onClose, 
                   </label>
                   <div style={{ position: 'relative' }}>
                     <select
+                      aria-label="HTTP method"
                       value={getTextValue('method') || 'GET'}
                       onChange={e => setTextValue('method', e.target.value)}
                       style={{
@@ -3582,7 +3639,7 @@ function TaskEditModal({ task, selectedDocUuids, workflow, workflowId, onClose, 
                     </select>
                     <ChevronDown style={{
                       position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)',
-                      width: 14, height: 14, color: '#9ca3af', pointerEvents: 'none',
+                      width: 14, height: 14, color: '#6b7280', pointerEvents: 'none',
                     }} />
                   </div>
                 </div>
@@ -3592,6 +3649,7 @@ function TaskEditModal({ task, selectedDocUuids, workflow, workflowId, onClose, 
                   </label>
                   <div style={{ position: 'relative', marginBottom: 8 }}>
                     <select
+                      aria-label="Authentication"
                       value={(getTextValue('auth_strategy') || 'none')}
                       onChange={e => {
                         const strategy = e.target.value
@@ -3613,7 +3671,7 @@ function TaskEditModal({ task, selectedDocUuids, workflow, workflowId, onClose, 
                     </select>
                     <ChevronDown style={{
                       position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)',
-                      width: 14, height: 14, color: '#9ca3af', pointerEvents: 'none',
+                      width: 14, height: 14, color: '#6b7280', pointerEvents: 'none',
                     }} />
                   </div>
                   {getTextValue('auth_strategy') && getTextValue('auth_strategy') !== 'none' && (() => {
@@ -3624,6 +3682,7 @@ function TaskEditModal({ task, selectedDocUuids, workflow, workflowId, onClose, 
                         <div style={{ display: 'flex', gap: 8, alignItems: 'stretch' }}>
                           <div style={{ position: 'relative', flex: 1 }}>
                             <select
+                              aria-label="Credential"
                               value={getTextValue('credential_id') || ''}
                               onChange={e => setTextValue('credential_id', e.target.value)}
                               style={{
@@ -3639,7 +3698,7 @@ function TaskEditModal({ task, selectedDocUuids, workflow, workflowId, onClose, 
                             </select>
                             <ChevronDown style={{
                               position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)',
-                              width: 14, height: 14, color: '#9ca3af', pointerEvents: 'none',
+                              width: 14, height: 14, color: '#6b7280', pointerEvents: 'none',
                             }} />
                           </div>
                           <button
@@ -3682,6 +3741,7 @@ function TaskEditModal({ task, selectedDocUuids, workflow, workflowId, onClose, 
                     Headers (JSON)
                   </label>
                   <textarea
+                    aria-label="Headers JSON"
                     value={getTextValue('headers')}
                     onChange={e => setTextValue('headers', e.target.value)}
                     placeholder={'{"Content-Type": "application/json"}'}
@@ -3701,6 +3761,7 @@ function TaskEditModal({ task, selectedDocUuids, workflow, workflowId, onClose, 
                     Request Body
                   </label>
                   <textarea
+                    aria-label="Request body"
                     value={getTextValue('body')}
                     onChange={e => setTextValue('body', e.target.value)}
                     placeholder={'{"records": {{ inputs.output }}}'}
@@ -3728,6 +3789,7 @@ function TaskEditModal({ task, selectedDocUuids, workflow, workflowId, onClose, 
                   </label>
                   <div style={{ position: 'relative' }}>
                     <select
+                      aria-label="Output format"
                       value={getTextValue('format') || 'md'}
                       onChange={e => setTextValue('format', e.target.value)}
                       style={{
@@ -3741,7 +3803,7 @@ function TaskEditModal({ task, selectedDocUuids, workflow, workflowId, onClose, 
                     </select>
                     <ChevronDown style={{
                       position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)',
-                      width: 14, height: 14, color: '#9ca3af', pointerEvents: 'none',
+                      width: 14, height: 14, color: '#6b7280', pointerEvents: 'none',
                     }} />
                   </div>
                 </div>
@@ -3750,6 +3812,7 @@ function TaskEditModal({ task, selectedDocUuids, workflow, workflowId, onClose, 
                     Filename
                   </label>
                   <input
+                    aria-label="Filename"
                     type="text"
                     value={getTextValue('filename') || 'output'}
                     onChange={e => setTextValue('filename', e.target.value)}
@@ -3770,6 +3833,7 @@ function TaskEditModal({ task, selectedDocUuids, workflow, workflowId, onClose, 
                   Template
                 </label>
                 <textarea
+                  aria-label="Template"
                   value={getTextValue('template')}
                   onChange={e => setTextValue('template', e.target.value)}
                   placeholder={'Dear {{name}},\n\nThank you for your {{item}}.\n\nBest regards,\n{{sender}}'}
@@ -3795,6 +3859,7 @@ function TaskEditModal({ task, selectedDocUuids, workflow, workflowId, onClose, 
                   </label>
                   <div style={{ position: 'relative' }}>
                     <select
+                      aria-label="Export format"
                       value={getTextValue('format') || 'json'}
                       onChange={e => setTextValue('format', e.target.value)}
                       style={{
@@ -3808,7 +3873,7 @@ function TaskEditModal({ task, selectedDocUuids, workflow, workflowId, onClose, 
                     </select>
                     <ChevronDown style={{
                       position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)',
-                      width: 14, height: 14, color: '#9ca3af', pointerEvents: 'none',
+                      width: 14, height: 14, color: '#6b7280', pointerEvents: 'none',
                     }} />
                   </div>
                 </div>
@@ -3817,6 +3882,7 @@ function TaskEditModal({ task, selectedDocUuids, workflow, workflowId, onClose, 
                     Filename
                   </label>
                   <input
+                    aria-label="Filename"
                     type="text"
                     value={getTextValue('filename') || 'export'}
                     onChange={e => setTextValue('filename', e.target.value)}
@@ -3837,6 +3903,7 @@ function TaskEditModal({ task, selectedDocUuids, workflow, workflowId, onClose, 
                   Package Name
                 </label>
                 <input
+                  aria-label="Package name"
                   type="text"
                   value={getTextValue('package_name') || 'package'}
                   onChange={e => setTextValue('package_name', e.target.value)}
@@ -3883,6 +3950,7 @@ function TaskEditModal({ task, selectedDocUuids, workflow, workflowId, onClose, 
                       Review instructions
                     </label>
                     <textarea
+                      aria-label="Review instructions"
                       value={getTextValue('review_instructions')}
                       onChange={e => setTextValue('review_instructions', e.target.value)}
                       rows={4}
@@ -3948,6 +4016,7 @@ function TaskEditModal({ task, selectedDocUuids, workflow, workflowId, onClose, 
                       Deadline (days)
                     </label>
                     <input
+                      aria-label="Deadline in days"
                       type="number"
                       min={0}
                       step={1}
@@ -3968,6 +4037,7 @@ function TaskEditModal({ task, selectedDocUuids, workflow, workflowId, onClose, 
                       If the deadline passes
                     </label>
                     <select
+                      aria-label="If the deadline passes"
                       value={timeoutAction}
                       onChange={e => setTaskData(prev => ({ ...prev, timeout_action: e.target.value }))}
                       style={{
@@ -4015,9 +4085,10 @@ function TaskEditModal({ task, selectedDocUuids, workflow, workflowId, onClose, 
               && models.length > 0 && (
               <div style={{ marginTop: 16 }}>
                 <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 6 }}>
-                  Model Override <span style={{ fontWeight: 400, color: '#9ca3af' }}>(optional)</span>
+                  Model Override <span style={{ fontWeight: 400, color: '#6b7280' }}>(optional)</span>
                 </label>
                 <select
+                  aria-label="Model override"
                   value={(taskData.model as string) || ''}
                   onChange={e => setTaskData(prev => ({ ...prev, model: e.target.value }))}
                   style={{
@@ -4056,7 +4127,7 @@ function TaskEditModal({ task, selectedDocUuids, workflow, workflowId, onClose, 
             )}
 
             {testError && (
-              <div style={{ marginTop: 16 }}>
+              <div role="alert" style={{ marginTop: 16 }}>
                 <div style={{
                   display: 'flex', alignItems: 'center', gap: 6,
                   fontSize: 13, color: '#dc2626', fontWeight: 600,
@@ -4136,6 +4207,12 @@ function TaskEditModal({ task, selectedDocUuids, workflow, workflowId, onClose, 
                   {wantsSelectDocument && (
                     <div style={{ marginTop: 8, position: 'relative' }}>
                       <input
+                        aria-label="Search documents"
+                        role="combobox"
+                        aria-expanded={showDocDropdown}
+                        aria-controls="doc-search-listbox"
+                        aria-autocomplete="list"
+                        aria-haspopup="listbox"
                         type="text"
                         value={docSearchQuery}
                         onChange={e => setDocSearchQuery(e.target.value)}
@@ -4147,21 +4224,35 @@ function TaskEditModal({ task, selectedDocUuids, workflow, workflowId, onClose, 
                         }}
                         onFocus={() => setShowDocDropdown(true)}
                         onBlur={() => setTimeout(() => setShowDocDropdown(false), 200)}
+                        onKeyDown={e => {
+                          if (e.key === 'Escape') {
+                            setShowDocDropdown(false)
+                          } else if (e.key === 'Enter' && showDocDropdown && docSearchResults.length > 0) {
+                            e.preventDefault()
+                            const doc = docSearchResults[0]
+                            setSelectedDocUuid(doc.uuid)
+                            setSelectedDocTitle(doc.title)
+                            setDocSearchQuery(doc.title)
+                            setShowDocDropdown(false)
+                          }
+                        }}
                       />
                       {showDocDropdown && (
-                        <div style={{
+                        <div id="doc-search-listbox" role="listbox" aria-label="Document search results" style={{
                           position: 'absolute', top: '100%', left: 0, right: 0, marginTop: 4,
                           backgroundColor: '#fff', border: '1px solid #e5e7eb', borderRadius: 6,
                           boxShadow: '0 8px 24px rgba(0,0,0,0.12)', zIndex: 10,
                           maxHeight: 200, overflowY: 'auto',
                         }}>
                           {docSearchResults.length === 0 ? (
-                            <div style={{ padding: '8px 12px', fontSize: 13, color: '#9ca3af' }}>
+                            <div style={{ padding: '8px 12px', fontSize: 13, color: '#6b7280' }}>
                               No documents found
                             </div>
                           ) : docSearchResults.map(doc => (
                             <div
                               key={doc.uuid}
+                              role="option"
+                              aria-selected={doc.uuid === selectedDocUuid}
                               onMouseDown={() => {
                                 setSelectedDocUuid(doc.uuid)
                                 setSelectedDocTitle(doc.title)
@@ -4197,8 +4288,10 @@ function TaskEditModal({ task, selectedDocUuids, workflow, workflowId, onClose, 
                             {selectedDocTitle || selectedDocUuid}
                           </span>
                           <button
+                            type="button"
+                            aria-label="Clear selected document"
                             onClick={() => { setSelectedDocUuid(''); setSelectedDocTitle(''); setDocSearchQuery('') }}
-                            style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2, color: '#9ca3af', display: 'flex' }}
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2, color: '#6b7280', display: 'flex' }}
                           >
                             <X style={{ width: 12, height: 12 }} />
                           </button>
@@ -4246,8 +4339,10 @@ function TaskEditModal({ task, selectedDocUuids, workflow, workflowId, onClose, 
                                 {doc.title}
                               </span>
                               <button
+                                type="button"
+                                aria-label="Remove document"
                                 onClick={() => removeFixedDoc(doc.uuid)}
-                                style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2, color: '#9ca3af', display: 'flex' }}
+                                style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2, color: '#6b7280', display: 'flex' }}
                               >
                                 <X style={{ width: 12, height: 12 }} />
                               </button>
@@ -4259,8 +4354,14 @@ function TaskEditModal({ task, selectedDocUuids, workflow, workflowId, onClose, 
                       {/* Search existing documents */}
                       <div style={{ position: 'relative', marginBottom: 8 }}>
                         <div style={{ position: 'relative' }}>
-                          <Search style={{ width: 13, height: 13, position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', color: '#9ca3af' }} />
+                          <Search style={{ width: 13, height: 13, position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', color: '#6b7280' }} />
                           <input
+                            aria-label="Search documents by name"
+                            role="combobox"
+                            aria-expanded={showFixedDocDropdown}
+                            aria-controls="fixed-doc-listbox"
+                            aria-autocomplete="list"
+                            aria-haspopup="listbox"
                             type="text"
                             value={fixedDocSearch}
                             onChange={e => setFixedDocSearch(e.target.value)}
@@ -4272,22 +4373,34 @@ function TaskEditModal({ task, selectedDocUuids, workflow, workflowId, onClose, 
                             }}
                             onFocus={() => setShowFixedDocDropdown(true)}
                             onBlur={() => setTimeout(() => setShowFixedDocDropdown(false), 200)}
+                            onKeyDown={e => {
+                              if (e.key === 'Escape') {
+                                setShowFixedDocDropdown(false)
+                              } else if (e.key === 'Enter' && showFixedDocDropdown && fixedDocResults.length > 0) {
+                                e.preventDefault()
+                                addFixedDoc(fixedDocResults[0])
+                                setFixedDocSearch('')
+                                setShowFixedDocDropdown(false)
+                              }
+                            }}
                           />
                         </div>
                         {showFixedDocDropdown && (
-                          <div style={{
+                          <div id="fixed-doc-listbox" role="listbox" aria-label="Document search results" style={{
                             position: 'absolute', top: '100%', left: 0, right: 0, marginTop: 4,
                             backgroundColor: '#fff', border: '1px solid #e5e7eb', borderRadius: 6,
                             boxShadow: '0 8px 24px rgba(0,0,0,0.12)', zIndex: 10,
                             maxHeight: 160, overflowY: 'auto',
                           }}>
                             {fixedDocResults.length === 0 ? (
-                              <div style={{ padding: '7px 10px', fontSize: 12, color: '#9ca3af' }}>
+                              <div style={{ padding: '7px 10px', fontSize: 12, color: '#6b7280' }}>
                                 No documents found
                               </div>
                             ) : fixedDocResults.map(doc => (
                               <div
                                 key={doc.uuid}
+                                role="option"
+                                aria-selected={false}
                                 onMouseDown={() => {
                                   addFixedDoc(doc)
                                   setFixedDocSearch('')
@@ -4332,12 +4445,12 @@ function TaskEditModal({ task, selectedDocUuids, workflow, workflowId, onClose, 
                       >
                         {uploading ? (
                           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-                            <Loader2 style={{ width: 14, height: 14, animation: 'spin 1s linear infinite', color: '#6b7280' }} />
+                            <Loader2 aria-hidden="true" style={{ width: 14, height: 14, animation: 'spin 1s linear infinite', color: '#6b7280' }} />
                             <span style={{ fontSize: 12, color: '#6b7280' }}>Uploading...</span>
                           </div>
                         ) : (
                           <>
-                            <Upload style={{ width: 18, height: 18, color: '#9ca3af', margin: '0 auto 4px' }} />
+                            <Upload style={{ width: 18, height: 18, color: '#6b7280', margin: '0 auto 4px' }} />
                             <div style={{ fontSize: 12, color: '#6b7280' }}>
                               Drag & drop files here
                             </div>
@@ -4352,6 +4465,7 @@ function TaskEditModal({ task, selectedDocUuids, workflow, workflowId, onClose, 
                               Browse Files
                             </button>
                             <input
+                              aria-label="Upload files"
                               ref={fileInputRef}
                               type="file"
                               multiple
@@ -4429,6 +4543,7 @@ function TaskEditModal({ task, selectedDocUuids, workflow, workflowId, onClose, 
                   This prompt will be applied to the task's output before it passes to the next step.
                 </div>
                 <textarea
+                  aria-label="Post-processing prompt"
                   value={postProcessPrompt}
                   onChange={e => setPostProcessPrompt(e.target.value)}
                   placeholder="e.g., Summarize the extracted data into bullet points"
@@ -4457,12 +4572,12 @@ function TaskEditModal({ task, selectedDocUuids, workflow, workflowId, onClose, 
 
       {/* Test progress bar */}
       {testing && (
-        <div style={{
+        <div role="status" aria-live="polite" style={{
           padding: '12px 20px', borderTop: '1px solid #e5e7eb', backgroundColor: '#fafafa',
           flexShrink: 0,
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-            <Loader2 style={{ width: 14, height: 14, color: 'var(--highlight-color, #eab308)', animation: 'spin 1s linear infinite' }} />
+            <Loader2 aria-hidden="true" style={{ width: 14, height: 14, color: 'var(--highlight-color, #eab308)', animation: 'spin 1s linear infinite' }} />
             <span style={{ fontSize: 13, fontWeight: 500, color: '#374151' }}>{testMessage}</span>
           </div>
           <div style={{
@@ -4648,7 +4763,7 @@ function WorkflowOutputCard({ status, sessionId, workflowName, running, runElaps
           }}>
             {formatApiRequest(req)}
           </pre>
-          <p style={{ fontSize: 11, color: '#9ca3af', marginTop: 6 }}>
+          <p style={{ fontSize: 11, color: '#6b7280', marginTop: 6 }}>
             Sensitive header values are redacted.
           </p>
         </details>
@@ -4677,7 +4792,7 @@ function WorkflowOutputCard({ status, sessionId, workflowName, running, runElaps
         : '2px solid #e5e7eb',
     }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, gap: 8 }}>
-        <div style={{ fontWeight: 600, fontSize: 14, color: '#202124' }}>
+        <div role="status" aria-live="polite" style={{ fontWeight: 600, fontSize: 14, color: '#202124' }}>
           {running ? 'Workflow Running' : isCompleted ? 'Output' : isCanceled ? 'Stopped' : isError ? 'Error' : isPendingApproval ? 'Awaiting Approval' : 'View Output'}
         </div>
         {isPendingApproval && status?.approval_request_id && (
@@ -4730,6 +4845,7 @@ function WorkflowOutputCard({ status, sessionId, workflowName, running, runElaps
                       Comments (optional)
                     </label>
                     <textarea
+                      aria-label="Comments"
                       value={approvalComments}
                       onChange={e => setApprovalComments(e.target.value)}
                       rows={2}
@@ -4740,7 +4856,7 @@ function WorkflowOutputCard({ status, sessionId, workflowName, running, runElaps
                     />
                   </div>
                   {approvalError && (
-                    <div style={{ fontSize: 12, color: '#dc2626', marginBottom: 8 }}>{approvalError}</div>
+                    <div role="alert" style={{ fontSize: 12, color: '#dc2626', marginBottom: 8 }}>{approvalError}</div>
                   )}
                   <div style={{ display: 'flex', gap: 8 }}>
                     <button
@@ -4783,7 +4899,7 @@ function WorkflowOutputCard({ status, sessionId, workflowName, running, runElaps
           <div style={{ fontSize: 13, color: '#6b7280', marginBottom: 4 }}>
             {status?.current_step_name || 'Preparing...'}
           </div>
-          <div style={{ fontSize: 12, color: '#9ca3af' }}>
+          <div style={{ fontSize: 12, color: '#6b7280' }}>
             {runElapsed}s elapsed
             {status && status.num_steps_total > 0 && (
               <> - Step {status.num_steps_completed + 1} of {status.num_steps_total}</>
@@ -4873,7 +4989,7 @@ function WorkflowOutputCard({ status, sessionId, workflowName, running, runElaps
                     onMouseLeave={e => { e.currentTarget.style.backgroundColor = '#fff' }}
                   >
                     <span>{label}</span>
-                    <span style={{ fontSize: 11, color: '#9ca3af', fontWeight: 400 }}>{desc}</span>
+                    <span style={{ fontSize: 11, color: '#6b7280', fontWeight: 400 }}>{desc}</span>
                   </a>
                 ))}
               </div>
@@ -4909,7 +5025,7 @@ function WorkflowOutputCard({ status, sessionId, workflowName, running, runElaps
 
       {/* Error */}
       {isError && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, fontSize: 13, color: '#dc2626', fontWeight: 500 }}>
+        <div role="alert" style={{ display: 'flex', flexDirection: 'column', gap: 8, fontSize: 13, color: '#dc2626', fontWeight: 500 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <XCircle style={{ width: 16, height: 16 }} />
             {status?.error || 'Failed'}
@@ -4937,6 +5053,8 @@ function WorkflowSourcesPanel({ sources }: { sources: WorkflowCitation[] }) {
   return (
     <div style={{ marginTop: 4, borderTop: '1px solid #e5e7eb', paddingTop: 8 }}>
       <button
+        type="button"
+        aria-expanded={expanded}
         onClick={() => setExpanded(e => !e)}
         style={{
           display: 'flex', alignItems: 'center', gap: 4, padding: 0,
@@ -5106,7 +5224,11 @@ function BatchOutputCard({ batchStatus, running, runElapsed }: {
               border: '1px solid #e5e7eb', borderRadius: 6, overflow: 'hidden',
             }}>
               <div
+                role="button"
+                tabIndex={0}
+                aria-expanded={isExpanded}
                 onClick={() => setExpandedIdx(isExpanded ? null : idx)}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setExpandedIdx(isExpanded ? null : idx) } }}
                 style={{
                   display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px',
                   cursor: itemDone ? 'pointer' : 'default',
@@ -5115,17 +5237,17 @@ function BatchOutputCard({ batchStatus, running, runElapsed }: {
               >
                 {itemDone && <CheckCircle style={{ width: 14, height: 14, color: '#16a34a', flexShrink: 0 }} />}
                 {itemFailed && <XCircle style={{ width: 14, height: 14, color: '#dc2626', flexShrink: 0 }} />}
-                {itemRunning && <Loader2 style={{ width: 14, height: 14, color: '#6b7280', flexShrink: 0, animation: 'spin 1s linear infinite' }} />}
+                {itemRunning && <Loader2 aria-hidden="true" style={{ width: 14, height: 14, color: '#6b7280', flexShrink: 0, animation: 'spin 1s linear infinite' }} />}
                 {!itemDone && !itemFailed && !itemRunning && <Circle style={{ width: 14, height: 14, color: '#d1d5db', flexShrink: 0 }} />}
                 <span style={{ fontSize: 13, color: '#374151', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {item.document_title || item.session_id}
                 </span>
                 {itemRunning && item.current_step_name && (
-                  <span style={{ fontSize: 11, color: '#9ca3af', flexShrink: 0 }}>{item.current_step_name}</span>
+                  <span role="status" aria-live="polite" style={{ fontSize: 11, color: '#6b7280', flexShrink: 0 }}>{item.current_step_name}</span>
                 )}
                 {itemDone && (
                   <ChevronDown style={{
-                    width: 14, height: 14, color: '#9ca3af', flexShrink: 0,
+                    width: 14, height: 14, color: '#6b7280', flexShrink: 0,
                     transition: 'transform 0.15s',
                     transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
                   }} />
@@ -5199,13 +5321,19 @@ function BrowserAutomationDesign({ taskData, setTextValue, getTextValue, setTask
   return (
     <div>
       {/* Tab bar */}
-      <div style={{ display: 'flex', gap: 0, marginBottom: 16, borderBottom: '1px solid #e5e7eb' }}>
+      <div role="tablist" aria-label="Browser automation mode" style={{ display: 'flex', gap: 0, marginBottom: 16, borderBottom: '1px solid #e5e7eb' }}>
         {([
           { key: 'record' as const, label: 'Record Actions' },
           { key: 'manual' as const, label: 'Build Manually' },
         ]).map(t => (
           <button
             key={t.key}
+            type="button"
+            role="tab"
+            id={`ba-tab-${t.key}`}
+            aria-selected={baTab === t.key}
+            aria-controls={`ba-tabpanel-${t.key}`}
+            tabIndex={baTab === t.key ? 0 : -1}
             onClick={() => setBaTab(t.key)}
             style={{
               padding: '8px 16px', fontSize: 12, fontWeight: baTab === t.key ? 700 : 500,
@@ -5221,7 +5349,7 @@ function BrowserAutomationDesign({ taskData, setTextValue, getTextValue, setTask
       </div>
 
       {baTab === 'record' && (
-        <div>
+        <div id="ba-tabpanel-record" role="tabpanel" aria-labelledby="ba-tab-record">
           {/* Connection status */}
           <div style={{
             display: 'flex', alignItems: 'center', gap: 8, padding: 12,
@@ -5242,7 +5370,7 @@ function BrowserAutomationDesign({ taskData, setTextValue, getTextValue, setTask
               style={{
                 padding: '8px 20px', fontSize: 13, fontWeight: 600, fontFamily: 'inherit',
                 borderRadius: 6, border: 'none',
-                backgroundColor: '#e5e7eb', color: '#9ca3af', cursor: 'not-allowed',
+                backgroundColor: '#e5e7eb', color: '#6b7280', cursor: 'not-allowed',
               }}
             >
               Start Recording
@@ -5252,13 +5380,14 @@ function BrowserAutomationDesign({ taskData, setTextValue, getTextValue, setTask
       )}
 
       {baTab === 'manual' && (
-        <div>
+        <div id="ba-tabpanel-manual" role="tabpanel" aria-labelledby="ba-tab-manual">
           {/* Starting URL */}
           <div style={{ marginBottom: 12 }}>
             <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 6 }}>
               Starting URL (optional)
             </label>
             <input
+              aria-label="Starting URL"
               type="text"
               value={getTextValue('start_url')}
               onChange={e => setTextValue('start_url', e.target.value)}
@@ -5276,6 +5405,7 @@ function BrowserAutomationDesign({ taskData, setTextValue, getTextValue, setTask
               Allowed Domains (comma-separated, optional)
             </label>
             <input
+              aria-label="Allowed domains"
               type="text"
               value={getTextValue('allowed_domains')}
               onChange={e => setTextValue('allowed_domains', e.target.value)}
@@ -5316,6 +5446,7 @@ function BrowserAutomationDesign({ taskData, setTextValue, getTextValue, setTask
                   </div>
                   {(action.type === 'navigate' || action.type === 'click' || action.type === 'fill_form' || action.type === 'extract' || action.type === 'smart_action' || action.type === 'verify') && (
                     <input
+                      aria-label="Action value"
                       type="text"
                       value={action.config.value || ''}
                       onChange={e => updateActionConfig(idx, 'value', e.target.value)}
@@ -5334,8 +5465,8 @@ function BrowserAutomationDesign({ taskData, setTextValue, getTextValue, setTask
                     />
                   )}
                 </div>
-                <button onClick={() => removeAction(idx)} style={{
-                  background: 'none', border: 'none', cursor: 'pointer', padding: 4, color: '#9ca3af', display: 'flex', flexShrink: 0,
+                <button type="button" aria-label="Remove action" onClick={() => removeAction(idx)} style={{
+                  background: 'none', border: 'none', cursor: 'pointer', padding: 4, color: '#6b7280', display: 'flex', flexShrink: 0,
                 }}>
                   <Trash2 style={{ width: 13, height: 13 }} />
                 </button>
@@ -5380,6 +5511,7 @@ function BrowserAutomationDesign({ taskData, setTextValue, getTextValue, setTask
             </label>
             {summarizeEnabled && (
               <textarea
+                aria-label="Summary prompt"
                 value={summaryPrompt}
                 onChange={e => setTaskData(prev => ({
                   ...prev,
@@ -5488,6 +5620,7 @@ function InputTab({ workflow, openWorkflowId, onRefresh }: {
         <div>
           <div style={{ fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 6 }}>Input Type</div>
           <select
+            aria-label="Input type"
             value={triggerType}
             onChange={e => handleTriggerChange(e.target.value)}
             disabled={saving}
@@ -5649,6 +5782,7 @@ function OutputConfigCard({
               Destination Folder
             </label>
             <select
+              aria-label="Destination folder"
               value={destinationFolder}
               onChange={e => persistStorage({ destination_folder: e.target.value })}
               style={{
@@ -5669,6 +5803,7 @@ function OutputConfigCard({
               Format
             </label>
             <select
+              aria-label="Format"
               value={format}
               onChange={e => persistStorage({ format: e.target.value })}
               style={{
@@ -5683,7 +5818,7 @@ function OutputConfigCard({
               <option value="csv">CSV</option>
               <option value="pdf">PDF</option>
             </select>
-            <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 4 }}>
+            <div style={{ fontSize: 11, color: '#6b7280', marginTop: 4 }}>
               Markdown is the most chainable format. PDFs and CSVs are saved as files but their text content is rendered as Markdown for downstream workflows.
             </div>
           </div>
@@ -5693,6 +5828,7 @@ function OutputConfigCard({
               File Naming Pattern
             </label>
             <input
+              aria-label="File naming pattern"
               type="text"
               defaultValue={fileNaming}
               onBlur={e => persistStorage({ file_naming: e.target.value })}
@@ -5702,7 +5838,7 @@ function OutputConfigCard({
                 border: '1px solid #d1d5db', borderRadius: 6, outline: 'none', boxSizing: 'border-box',
               }}
             />
-            <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 4 }}>
+            <div style={{ fontSize: 11, color: '#6b7280', marginTop: 4 }}>
               Variables: {'{workflow_name}'}, {'{date}'}, {'{time}'}, {'{workflow_id}'}, {'{run_id}'}
             </div>
           </div>
@@ -5827,10 +5963,11 @@ function FixedDocumentsZone({
                 {doc.title}
               </span>
               <button
+                type="button"
                 onClick={() => onRemoveDoc(doc.uuid)}
                 style={{
                   background: 'none', border: 'none', cursor: 'pointer', padding: 2,
-                  color: '#9ca3af', display: 'flex',
+                  color: '#6b7280', display: 'flex',
                 }}
                 aria-label={`Remove ${doc.title}`}
               >
@@ -5876,12 +6013,12 @@ function FixedDocumentsZone({
       >
         {uploading ? (
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-            <Loader2 style={{ width: 14, height: 14, animation: 'spin 1s linear infinite' }} />
+            <Loader2 aria-hidden="true" style={{ width: 14, height: 14, animation: 'spin 1s linear infinite' }} />
             Uploading...
           </div>
         ) : (
           <>
-            <Upload style={{ width: 18, height: 18, color: '#9ca3af', margin: '0 auto 6px' }} />
+            <Upload style={{ width: 18, height: 18, color: '#6b7280', margin: '0 auto 6px' }} />
             <div>Drag documents here or click to browse</div>
           </>
         )}
@@ -6609,7 +6746,7 @@ function ValidateTab({
         )}
 
         {error && (
-          <div style={{
+          <div role="alert" style={{
             padding: 12, backgroundColor: '#fee2e2', border: '1px solid #fca5a5',
             borderRadius: 8, fontSize: 13, color: '#dc2626',
           }}>
@@ -6620,6 +6757,8 @@ function ValidateTab({
         {/* ---- Test data & quality checks (collapsible setup) ---- */}
         <div style={{ border: '1px solid #e5e7eb', borderRadius: 8, backgroundColor: '#fff' }}>
           <button
+            type="button"
+            aria-expanded={setupOpen}
             onClick={() => setSetupOpen(o => !o)}
             style={{
               width: '100%', display: 'flex', alignItems: 'center', gap: 8,
@@ -6639,7 +6778,7 @@ function ValidateTab({
                 PLAN NEEDS REVIEW
               </span>
             )}
-            <span style={{ marginLeft: 'auto', fontSize: 11, color: '#9ca3af', whiteSpace: 'nowrap' }}>
+            <span style={{ marginLeft: 'auto', fontSize: 11, color: '#6b7280', whiteSpace: 'nowrap' }}>
               {inputs.length} {inputs.length === 1 ? 'input' : 'inputs'}
               {' · '}{expectedOutputs.length} expected {expectedOutputs.length === 1 ? 'output' : 'outputs'}
               {' · '}{planChecks.length} {planChecks.length === 1 ? 'check' : 'checks'}
@@ -6708,7 +6847,7 @@ function ValidateTab({
                 }}
               >
                 {synthesizing
-                  ? <Loader2 style={{ width: 11, height: 11, animation: 'spin 1s linear infinite' }} />
+                  ? <Loader2 aria-hidden="true" style={{ width: 11, height: 11, animation: 'spin 1s linear infinite' }} />
                   : <Sparkles style={{ width: 11, height: 11 }} />
                 } Synthesize
               </button>
@@ -6717,7 +6856,7 @@ function ValidateTab({
 
           {inputsLoading ? (
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: 16, justifyContent: 'center' }}>
-              <Loader2 style={{ width: 14, height: 14, animation: 'spin 1s linear infinite', color: '#6b7280' }} />
+              <Loader2 aria-hidden="true" style={{ width: 14, height: 14, animation: 'spin 1s linear infinite', color: '#6b7280' }} />
               <span style={{ fontSize: 12, color: '#6b7280' }}>Loading inputs...</span>
             </div>
           ) : inputs.length === 0 ? (
@@ -6725,10 +6864,10 @@ function ValidateTab({
               display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8,
               padding: '16px', border: '2px dashed #e5e7eb', borderRadius: 8, marginTop: 4,
             }}>
-              <div style={{ fontSize: 12, color: '#9ca3af', textAlign: 'center' }}>
+              <div style={{ fontSize: 12, color: '#6b7280', textAlign: 'center' }}>
                 No test inputs yet. Add documents or text blocks, then use "Run & Validate" to test.
               </div>
-              <div style={{ fontSize: 11, color: '#9ca3af' }}>
+              <div style={{ fontSize: 11, color: '#6b7280' }}>
                 Without inputs, validation evaluates the last execution's output.
               </div>
             </div>
@@ -6778,6 +6917,7 @@ function ValidateTab({
                     ) : (
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                         <input
+                          aria-label="Label"
                           value={input.label || ''}
                           onChange={e => updateTextInput(input.id, 'label', e.target.value)}
                           placeholder="Label (optional)..."
@@ -6788,6 +6928,7 @@ function ValidateTab({
                           }}
                         />
                         <textarea
+                          aria-label="Test content"
                           value={input.text || ''}
                           onChange={e => updateTextInput(input.id, 'text', e.target.value)}
                           placeholder="Paste or type test content..."
@@ -6802,8 +6943,10 @@ function ValidateTab({
                     )}
                   </div>
                   <button
+                    type="button"
+                    aria-label="Remove input"
                     onClick={() => removeInput(input.id)}
-                    style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, color: '#9ca3af', display: 'flex', flexShrink: 0 }}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, color: '#6b7280', display: 'flex', flexShrink: 0 }}
                     title="Remove input"
                   >
                     <Trash2 style={{ width: 13, height: 13 }} />
@@ -6847,7 +6990,7 @@ function ValidateTab({
               display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6,
               padding: '14px 16px', border: '2px dashed #e5e7eb', borderRadius: 8, marginTop: 4,
             }}>
-              <div style={{ fontSize: 12, color: '#9ca3af', textAlign: 'center' }}>
+              <div style={{ fontSize: 12, color: '#6b7280', textAlign: 'center' }}>
                 None saved yet. Run the workflow at least once, then "Suggest from history" to nominate candidates.
               </div>
             </div>
@@ -6889,8 +7032,10 @@ function ValidateTab({
                   </div>
                   {canManage && (
                     <button
+                      type="button"
+                      aria-label="Remove expected output"
                       onClick={() => handleDeleteExpectedOutput(eo.id)}
-                      style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, color: '#9ca3af', display: 'flex', flexShrink: 0 }}
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, color: '#6b7280', display: 'flex', flexShrink: 0 }}
                       title="Remove expected output"
                     >
                       <Trash2 style={{ width: 13, height: 13 }} />
@@ -6943,7 +7088,7 @@ function ValidateTab({
 
           {planLoading ? (
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: 16, justifyContent: 'center' }}>
-              <Loader2 style={{ width: 14, height: 14, animation: 'spin 1s linear infinite', color: '#6b7280' }} />
+              <Loader2 aria-hidden="true" style={{ width: 14, height: 14, animation: 'spin 1s linear infinite', color: '#6b7280' }} />
               <span style={{ fontSize: 12, color: '#6b7280' }}>Loading plan...</span>
             </div>
           ) : planChecks.length === 0 && !generating ? (
@@ -6976,7 +7121,7 @@ function ValidateTab({
             </div>
           ) : generating ? (
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: 16, justifyContent: 'center' }}>
-              <Loader2 style={{ width: 14, height: 14, animation: 'spin 1s linear infinite', color: '#6b7280' }} />
+              <Loader2 aria-hidden="true" style={{ width: 14, height: 14, animation: 'spin 1s linear infinite', color: '#6b7280' }} />
               <span style={{ fontSize: 12, color: '#6b7280' }}>Generating quality checks...</span>
             </div>
           ) : (
@@ -7009,6 +7154,7 @@ function ValidateTab({
                       {isEditing ? (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                           <input
+                            aria-label="Check name"
                             value={editName}
                             onChange={e => setEditName(e.target.value)}
                             style={{
@@ -7019,6 +7165,7 @@ function ValidateTab({
                             onKeyDown={e => { if (e.key === 'Enter') handleSaveEdit(idx) }}
                           />
                           <textarea
+                            aria-label="Check description"
                             value={editDesc}
                             onChange={e => setEditDesc(e.target.value)}
                             placeholder="What should the evaluator look for..."
@@ -7064,16 +7211,20 @@ function ValidateTab({
                         </button>
                       ) : (
                         <button
+                          type="button"
+                          aria-label="Edit check"
                           onClick={() => handleStartEdit(idx)}
-                          style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, color: '#9ca3af', display: 'flex' }}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, color: '#6b7280', display: 'flex' }}
                           title="Edit check"
                         >
                           <Pencil style={{ width: 13, height: 13 }} />
                         </button>
                       )}
                       <button
+                        type="button"
+                        aria-label="Remove check"
                         onClick={() => handleDeletePlanCheck(idx)}
-                        style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, color: '#9ca3af', display: 'flex' }}
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, color: '#6b7280', display: 'flex' }}
                         title="Remove check"
                       >
                         <X style={{ width: 14, height: 14 }} />
@@ -7088,6 +7239,7 @@ function ValidateTab({
                 <div style={{ padding: '10px 12px', borderTop: '1px solid #f3f4f6' }}>
                   <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6 }}>
                     <select
+                      aria-label="Check category"
                       value={newCategory}
                       onChange={e => setNewCategory(e.target.value)}
                       style={{
@@ -7101,6 +7253,7 @@ function ValidateTab({
                       <option value="accuracy">accuracy</option>
                     </select>
                     <input
+                      aria-label="Check name"
                       value={newName}
                       onChange={e => setNewName(e.target.value)}
                       placeholder="Check name..."
@@ -7114,6 +7267,7 @@ function ValidateTab({
                   </div>
                   <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                     <input
+                      aria-label="Check description"
                       value={newDesc}
                       onChange={e => setNewDesc(e.target.value)}
                       placeholder="Description: what should the evaluator look for..."
@@ -7172,6 +7326,8 @@ function ValidateTab({
             "Validate & improve" above. */}
         <div style={{ border: '1px solid #e5e7eb', borderRadius: 8, backgroundColor: '#fff' }}>
           <button
+            type="button"
+            aria-expanded={diagOpen}
             onClick={() => setDiagOpen(o => !o)}
             style={{
               width: '100%', display: 'flex', alignItems: 'center', gap: 8,
@@ -7183,7 +7339,7 @@ function ValidateTab({
               ? <ChevronDown style={{ width: 14, height: 14, color: '#6b7280', flexShrink: 0 }} />
               : <ChevronRight style={{ width: 14, height: 14, color: '#6b7280', flexShrink: 0 }} />}
             <span style={{ fontSize: 13, fontWeight: 600, color: '#374151' }}>Detailed check results</span>
-            <span style={{ marginLeft: 'auto', fontSize: 11, color: '#9ca3af', whiteSpace: 'nowrap' }}>
+            <span style={{ marginLeft: 'auto', fontSize: 11, color: '#6b7280', whiteSpace: 'nowrap' }}>
               run checks one-by-one to debug a low score
             </span>
           </button>
@@ -7206,7 +7362,7 @@ function ValidateTab({
                 display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
               }}
             >
-              {runPhase !== 'idle' && <Loader2 style={{ width: 14, height: 14, animation: 'spin 1s linear infinite' }} />}
+              {runPhase !== 'idle' && <Loader2 aria-hidden="true" style={{ width: 14, height: 14, animation: 'spin 1s linear infinite' }} />}
               {runPhase === 'running' ? runProgress
                 : runPhase === 'validating' ? 'Evaluating output...'
                 : 'Run & Validate'}
@@ -7225,20 +7381,20 @@ function ValidateTab({
                 display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
               }}
             >
-              {validating && <Loader2 style={{ width: 14, height: 14, animation: 'spin 1s linear infinite' }} />}
+              {validating && <Loader2 aria-hidden="true" style={{ width: 14, height: 14, animation: 'spin 1s linear infinite' }} />}
               {validating ? 'Evaluating output...' : 'Run Validation'}
             </button>
           )}
         </div>
         {!hasChecks && !planLoading && !generating && (
-          <div style={{ fontSize: 11, color: '#9ca3af', textAlign: 'center', marginTop: -8 }}>
+          <div style={{ fontSize: 11, color: '#6b7280', textAlign: 'center', marginTop: -8 }}>
             Generate or add checks to your validation plan first.
           </div>
         )}
 
         {/* ---- Progress Display ---- */}
         {runPhase !== 'idle' && (
-          <div style={{
+          <div role="status" aria-live="polite" style={{
             border: '1px solid #dbeafe', borderRadius: 10, padding: 20,
             backgroundColor: '#f0f5ff',
           }}>
@@ -7256,7 +7412,7 @@ function ValidateTab({
             </div>
 
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
-              <Loader2 style={{ width: 16, height: 16, color: '#3b82f6', animation: 'spin 1s linear infinite', flexShrink: 0 }} />
+              <Loader2 aria-hidden="true" style={{ width: 16, height: 16, color: '#3b82f6', animation: 'spin 1s linear infinite', flexShrink: 0 }} />
               <div style={{ flex: 1 }}>
                 <div style={{ fontSize: 13, fontWeight: 600, color: '#1e40af' }}>
                   {runPhase === 'running' ? 'Running workflow' : 'Evaluating quality checks'}
@@ -7308,7 +7464,7 @@ function ValidateTab({
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 14, fontWeight: 600, color: '#202124' }}>Validation Grade</div>
                 <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>{gradeInfo.summary}</div>
-                <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 4, lineHeight: 1.4 }}>
+                <div style={{ fontSize: 11, color: '#6b7280', marginTop: 4, lineHeight: 1.4 }}>
                   A <TermDef term="judge" theme="light">judge</TermDef> compared each step's output to your expected answers. Lower grade = more checks failed or scored low.
                 </div>
                 {resultPlanStale && (
@@ -7409,7 +7565,7 @@ function ValidateTab({
                 </div>
                 {loadingSuggestions && (
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: '#92400e' }}>
-                    <Loader2 style={{ width: 14, height: 14, animation: 'spin 1s linear infinite' }} />
+                    <Loader2 aria-hidden="true" style={{ width: 14, height: 14, animation: 'spin 1s linear infinite' }} />
                     Analyzing validation results...
                   </div>
                 )}
@@ -7439,14 +7595,14 @@ function ValidateTab({
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 12 }}>
                     <TrendingUp style={{ width: 14, height: 14, color: '#6b7280' }} />
                     <span style={{ fontSize: 13, fontWeight: 600, color: '#202124' }}>Quality History</span>
-                    <span style={{ fontSize: 11, color: '#9ca3af' }}>({qualityHistory.length} runs)</span>
+                    <span style={{ fontSize: 11, color: '#6b7280' }}>({qualityHistory.length} runs)</span>
                   </div>
                   <div style={{ width: '100%', height: 80 }}>
                     <ResponsiveContainer width="100%" height="100%">
                       <LineChart data={chartData} margin={{ top: 4, right: 4, bottom: 0, left: -20 }}>
                         <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
-                        <XAxis dataKey="date" tick={{ fontSize: 9, fill: '#9ca3af' }} interval="preserveStartEnd" />
-                        <YAxis domain={[0, 100]} tick={{ fontSize: 9, fill: '#9ca3af' }} />
+                        <XAxis dataKey="date" tick={{ fontSize: 9, fill: '#6b7280' }} interval="preserveStartEnd" />
+                        <YAxis domain={[0, 100]} tick={{ fontSize: 9, fill: '#6b7280' }} />
                         <Tooltip
                           contentStyle={{ fontSize: 11, borderRadius: 6, border: '1px solid #e5e7eb' }}
                           formatter={(value, name) => {
@@ -7466,6 +7622,8 @@ function ValidateTab({
 
                   {/* Expand toggle for run details */}
                   <button
+                    type="button"
+                    aria-expanded={historyExpanded}
                     onClick={() => setHistoryExpanded(!historyExpanded)}
                     style={{
                       display: 'flex', alignItems: 'center', gap: 4, marginTop: 8,
@@ -7500,10 +7658,13 @@ function ValidateTab({
                           return (
                             <React.Fragment key={run.uuid}>
                               <tr
+                                tabIndex={0}
+                                aria-expanded={isExpanded}
                                 style={{ borderBottom: '1px solid #f3f4f6', cursor: 'pointer' }}
                                 onClick={() => setExpandedRunId(isExpanded ? null : run.uuid)}
+                                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setExpandedRunId(isExpanded ? null : run.uuid) } }}
                               >
-                                <td style={{ padding: '4px 2px', color: '#9ca3af' }}>
+                                <td style={{ padding: '4px 2px', color: '#6b7280' }}>
                                   {isExpanded
                                     ? <ChevronDown style={{ width: 12, height: 12 }} />
                                     : <ChevronRight style={{ width: 12, height: 12 }} />}
@@ -7681,6 +7842,8 @@ function ValidateTab({
                 </div>
               </div>
               <button
+                type="button"
+                aria-label="Close"
                 onClick={() => !proposalsLoading && setProposalsOpen(false)}
                 disabled={proposalsLoading}
                 style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6b7280', padding: 4 }}
@@ -7690,7 +7853,7 @@ function ValidateTab({
             </div>
 
             {proposalsError && (
-              <div style={{
+              <div role="alert" style={{
                 padding: '8px 12px', background: '#fee2e2', color: '#991b1b',
                 borderRadius: 6, fontSize: 13, marginBottom: 12,
               }}>
@@ -7700,7 +7863,7 @@ function ValidateTab({
 
             {proposalsLoading && proposals.length === 0 ? (
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 32, gap: 8, color: '#6b7280' }}>
-                <Loader2 style={{ width: 16, height: 16, animation: 'spin 1s linear infinite' }} />
+                <Loader2 aria-hidden="true" style={{ width: 16, height: 16, animation: 'spin 1s linear infinite' }} />
                 <span style={{ fontSize: 13 }}>Scoring candidates…</span>
               </div>
             ) : proposalsNote ? (
@@ -7726,6 +7889,7 @@ function ValidateTab({
                   >
                     <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
                       <input
+                        aria-label="Select test case"
                         type="checkbox"
                         checked={p.selected}
                         onChange={e => {
@@ -7738,6 +7902,7 @@ function ValidateTab({
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 4 }}>
                           <input
+                            aria-label="Test case label"
                             value={p.editedLabel}
                             onChange={e => {
                               const next = [...proposals]
@@ -7772,7 +7937,7 @@ function ValidateTab({
                         }}>
                           {p.output_preview.slice(0, 400)}
                         </div>
-                        <div style={{ fontSize: 10, color: '#9ca3af', marginTop: 4 }}>
+                        <div style={{ fontSize: 10, color: '#6b7280', marginTop: 4 }}>
                           {p.output_length} chars · session {p.session_id.slice(0, 8)}
                         </div>
                       </div>
@@ -7951,11 +8116,13 @@ print(response.json())`
         <label style={{ fontSize: 13, fontWeight: 600, color: '#374151' }}>
           Run this workflow via API
         </label>
-        <div style={{ display: 'flex', gap: 4 }}>
-          <button onClick={() => setLang('python')} style={tabStyle(lang === 'python')}>Python</button>
-          <button onClick={() => setLang('curl')} style={tabStyle(lang === 'curl')}>cURL</button>
+        <div role="tablist" aria-label="Code sample language" style={{ display: 'flex', gap: 4 }}>
+          <button type="button" role="tab" id="api-lang-python" aria-selected={lang === 'python'} aria-controls="api-tabpanel" tabIndex={lang === 'python' ? 0 : -1} onClick={() => setLang('python')} style={tabStyle(lang === 'python')}>Python</button>
+          <button type="button" role="tab" id="api-lang-curl" aria-selected={lang === 'curl'} aria-controls="api-tabpanel" tabIndex={lang === 'curl' ? 0 : -1} onClick={() => setLang('curl')} style={tabStyle(lang === 'curl')}>cURL</button>
         </div>
       </div>
+
+      <div id="api-tabpanel" role="tabpanel" aria-labelledby={`api-lang-${lang}`}>
 
       <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 16, lineHeight: 1.6 }}>
         Trigger this workflow directly from any HTTP client. The endpoint queues the run asynchronously
@@ -7964,7 +8131,7 @@ print(response.json())`
       </div>
 
       <div style={{ marginBottom: 16 }}>
-        <div style={{ fontSize: 11, fontWeight: 600, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
+        <div style={{ fontSize: 11, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
           Endpoint
         </div>
         <div style={{ ...codeBlockStyle, whiteSpace: 'nowrap' }}>
@@ -7973,7 +8140,7 @@ print(response.json())`
       </div>
 
       <div style={{ marginBottom: 16 }}>
-        <div style={{ fontSize: 11, fontWeight: 600, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
+        <div style={{ fontSize: 11, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
           This workflow's ID
         </div>
         <div style={{ ...codeBlockStyle, whiteSpace: 'nowrap' }}>
@@ -7991,14 +8158,14 @@ print(response.json())`
       />
 
       <div style={{ marginBottom: 16 }}>
-        <div style={{ fontSize: 11, fontWeight: 600, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
+        <div style={{ fontSize: 11, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
           Response
         </div>
         <div style={codeBlockStyle}>{responseExample}</div>
       </div>
 
       <div style={{ marginBottom: 16 }}>
-        <div style={{ fontSize: 11, fontWeight: 600, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
+        <div style={{ fontSize: 11, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
           Status lookup
         </div>
         <div style={{ ...codeBlockStyle, whiteSpace: 'nowrap', marginBottom: 8 }}>
@@ -8014,9 +8181,10 @@ print(response.json())`
         />
       </div>
 
-      <div style={{ fontSize: 11, color: '#9ca3af', lineHeight: 1.6, marginTop: 8 }}>
+      <div style={{ fontSize: 11, color: '#6b7280', lineHeight: 1.6, marginTop: 8 }}>
         Parameters: <code>workflow_id</code> (required) and one or more <code>files</code> (multipart uploads).
         At least one file must be provided.
+      </div>
       </div>
     </div>
   )
@@ -8029,7 +8197,7 @@ function WorkflowApiCodeBlock({ title, code, id, copied, onCopy, style }: {
   return (
     <div style={{ marginBottom: 16 }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-        <div style={{ fontSize: 11, fontWeight: 600, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+        <div style={{ fontSize: 11, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
           {title}
         </div>
         <button

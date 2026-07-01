@@ -106,12 +106,19 @@ export function GlobalSearch({ onDocClick }: GlobalSearchProps) {
 
       {/* Results */}
       <div style={{ flex: 1, overflow: 'auto', padding: '8px 0' }}>
+        <div aria-live="polite" className="sr-only">
+          {loading
+            ? 'Searching'
+            : searched
+              ? `${results.length} result${results.length !== 1 ? 's' : ''} found`
+              : ''}
+        </div>
         {loading && (
-          <div style={{ padding: '20px 16px', textAlign: 'center', color: '#9ca3af', fontSize: 14 }}>Searching...</div>
+          <div role="status" aria-live="polite" style={{ padding: '20px 16px', textAlign: 'center', color: '#6b7280', fontSize: 14 }}>Searching...</div>
         )}
 
         {!loading && searched && results.length === 0 && (
-          <div style={{ padding: '30px 16px', textAlign: 'center', color: '#9ca3af', fontSize: 14 }}>
+          <div role="status" aria-live="polite" style={{ padding: '30px 16px', textAlign: 'center', color: '#6b7280', fontSize: 14 }}>
             No documents found for "{query}"
           </div>
         )}
@@ -128,7 +135,7 @@ export function GlobalSearch({ onDocClick }: GlobalSearchProps) {
             onMouseEnter={e => { e.currentTarget.style.backgroundColor = '#f3f4f6' }}
             onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'transparent' }}
           >
-            <FileText size={18} color="#9ca3af" style={{ marginTop: 2, flexShrink: 0 }} />
+            <FileText size={18} color="#6b7280" style={{ marginTop: 2, flexShrink: 0 }} aria-hidden="true" />
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: 14, fontWeight: 500, color: '#111827' }}>{doc.title}</div>
               {doc.snippet && (
@@ -140,7 +147,7 @@ export function GlobalSearch({ onDocClick }: GlobalSearchProps) {
                   {doc.snippet}
                 </div>
               )}
-              <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 4 }}>
+              <div style={{ fontSize: 11, color: '#6b7280', marginTop: 4 }}>
                 {doc.extension.toUpperCase()} · {doc.num_pages} page{doc.num_pages !== 1 ? 's' : ''}
               </div>
             </div>

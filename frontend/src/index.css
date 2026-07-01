@@ -31,7 +31,9 @@ html {
 /* Global keyboard focus indicator */
 @layer base {
   :focus-visible {
-    outline: 2px solid var(--highlight-color, #eab308);
+    /* Use the contrast-safe brand variant (the raw highlight, e.g. #eab308,
+       is ~1.9:1 on white — effectively invisible for keyboard users). */
+    outline: 2px solid var(--highlight-on-light, #806600);
     outline-offset: 2px;
   }
 

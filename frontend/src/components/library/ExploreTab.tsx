@@ -9,6 +9,7 @@ import {
   Pin, PinOff,
 } from 'lucide-react'
 import { useNavigate } from '@tanstack/react-router'
+import { FocusTrap } from 'focus-trap-react'
 import { QualityBadge } from './QualityBadge'
 import { AddToLibraryDialog } from './AddToLibraryDialog'
 import { AuthorChip } from '../shared/AuthorChip'
@@ -142,9 +143,19 @@ export function ItemDetailModal({
     : item.kind === 'knowledge_base' ? 'kb'
     : null
 
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    document.addEventListener('keydown', onKeyDown)
+    return () => document.removeEventListener('keydown', onKeyDown)
+  }, [onClose])
+
   return createPortal(
     <div className="fixed inset-0 z-[9990] flex items-start justify-center pt-[5vh] bg-black/40" onClick={onClose}>
+      <FocusTrap focusTrapOptions={{ allowOutsideClick: true, escapeDeactivates: false, tabbableOptions: { displayCheck: 'none' } }}>
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={item.display_name || item.name}
         className="w-full max-w-2xl max-h-[85vh] overflow-y-auto bg-white rounded-2xl shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
@@ -284,6 +295,7 @@ export function ItemDetailModal({
           </div>
         </div>
       </div>
+      </FocusTrap>
     </div>,
     document.body,
   )
@@ -764,6 +776,7 @@ export function ExploreTab() {
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   placeholder="Search items..."
+                  aria-label="Search catalog items"
                   className="w-full pl-9 pr-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-400"
                 />
               </div>
@@ -787,6 +800,7 @@ export function ExploreTab() {
               <select
                 value={qualityFilter}
                 onChange={(e) => setQualityFilter(e.target.value as QualityFilter)}
+                aria-label="Filter by quality"
                 className="px-3 py-1.5 text-xs font-medium border border-gray-300 rounded-lg bg-white text-gray-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-highlight"
               >
                 <option value="">Any quality</option>
@@ -800,6 +814,7 @@ export function ExploreTab() {
                 <select
                   value={sortOption}
                   onChange={(e) => setSortOption(e.target.value as SortOption)}
+                  aria-label="Sort items"
                   className="px-2 py-1.5 text-xs font-medium border border-gray-300 rounded-lg bg-white text-gray-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-highlight"
                 >
                   {sortOptions.map(([val, label]) => (
@@ -827,13 +842,13 @@ export function ExploreTab() {
                 <button onClick={clearFilters} className="text-xs text-gray-500 hover:text-gray-700 underline">
                   Clear all
                 </button>
-                <span className="text-xs text-gray-400 ml-auto">{total} result{total !== 1 ? 's' : ''}</span>
+                <span role="status" aria-live="polite" className="text-xs text-gray-400 ml-auto">{total} result{total !== 1 ? 's' : ''}</span>
               </div>
             )}
 
             {/* Error state */}
             {error && (
-              <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700 mb-4">
+              <div role="alert" className="rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700 mb-4">
                 {error}
                 <button onClick={refresh} className="ml-2 underline font-medium">Retry</button>
               </div>
@@ -841,8 +856,8 @@ export function ExploreTab() {
 
             {/* Loading */}
             {loading ? (
-              <div className="flex flex-col items-center justify-center py-20 text-gray-400">
-                <Loader2 className="h-8 w-8 animate-spin mb-3" />
+              <div role="status" aria-live="polite" className="flex flex-col items-center justify-center py-20 text-gray-400">
+                <Loader2 className="h-8 w-8 animate-spin mb-3" aria-hidden="true" />
                 <p className="text-sm">Loading catalog...</p>
               </div>
             ) : items.length === 0 ? (
@@ -933,7 +948,7 @@ export function ExploreTab() {
                       disabled={loadingMore}
                       className="inline-flex items-center gap-2 px-6 py-2.5 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 transition-colors"
                     >
-                      {loadingMore ? <><Loader2 className="h-4 w-4 animate-spin" /> Loading...</> : `Load more (${total - items.length} remaining)`}
+                      {loadingMore ? <><Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> Loading...</> : `Load more (${total - items.length} remaining)`}
                     </button>
                   </div>
                 )}

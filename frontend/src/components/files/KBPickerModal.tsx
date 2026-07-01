@@ -53,7 +53,7 @@ export function KBPickerModal({ onSelect, onClose, folderTitle }: KBPickerModalP
       >
         <div className="mb-1 flex items-center justify-between">
           <h3 id="kb-picker-title" className="text-lg font-medium text-gray-900">Add to knowledge base</h3>
-          <button onClick={onClose} aria-label="Close" className="text-gray-400 hover:text-gray-600">
+          <button type="button" onClick={onClose} aria-label="Close" className="text-gray-500 hover:text-gray-700">
             <X className="h-5 w-5" />
           </button>
         </div>
@@ -61,7 +61,7 @@ export function KBPickerModal({ onSelect, onClose, folderTitle }: KBPickerModalP
           Add the documents in <strong className="text-gray-700">{folderTitle}</strong> to:
         </p>
 
-        {error && <p className="mb-2 text-sm text-red-600">{error}</p>}
+        {error && <p role="alert" className="mb-2 text-sm text-red-600">{error}</p>}
         {!kbs && !error && (
           <p className="flex items-center gap-2 text-sm text-gray-500">
             <Loader2 className="h-4 w-4 animate-spin" /> Loading…
@@ -77,11 +77,12 @@ export function KBPickerModal({ onSelect, onClose, folderTitle }: KBPickerModalP
                 {kbs.map(kb => (
                   <li key={kb.uuid}>
                     <button
+                      type="button"
                       disabled={busy}
                       onClick={() => { setBusy(true); onSelect(kb.uuid, kb.title) }}
                       className="flex w-full items-center gap-2.5 px-3 py-2.5 text-sm text-left text-[#111] hover:bg-black/[.04] disabled:opacity-50"
                     >
-                      <Library className="h-4 w-4 shrink-0 text-gray-400" />
+                      <Library className="h-4 w-4 shrink-0 text-gray-500" />
                       <span className="truncate">{kb.title}</span>
                     </button>
                   </li>
@@ -111,6 +112,7 @@ export function KBPickerModal({ onSelect, onClose, folderTitle }: KBPickerModalP
           </form>
         ) : (
           <button
+            type="button"
             onClick={() => setCreating(true)}
             className="mt-3 flex items-center gap-1.5 text-sm font-medium text-gray-700 hover:text-gray-900"
           >
