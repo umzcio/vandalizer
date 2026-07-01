@@ -66,6 +66,24 @@ export function getContrastTextColor(hex: string): string {
   return contrastRatio(hex, '#000000') >= contrastRatio(hex, '#ffffff') ? '#000000' : '#ffffff'
 }
 
+/** Darken a color (preserving hue/saturation) until it meets the target WCAG
+ *  contrast ratio against a light background — for using the brand color as
+ *  *text/icons on white*, where the raw highlight (e.g. #eab308 ≈ 1.7:1) fails.
+ *  Returns the original color if it already passes. */
+export function getAccessibleOnLight(hex: string, bg = '#ffffff', target = 4.5): string {
+  if (contrastRatio(hex, bg) >= target) return hex
+  const { r, g, b } = hexToRgb(hex)
+  const { h, s } = rgbToHsl(r, g, b)
+  let { l } = rgbToHsl(r, g, b)
+  // Step lightness down until contrast is met (or we bottom out near black).
+  for (let i = 0; i < 100 && l > 0; i++) {
+    l = Math.max(0, l - 0.02)
+    const candidate = hslToHex(h, s, l)
+    if (contrastRatio(candidate, bg) >= target) return candidate
+  }
+  return '#1a1a1a'
+}
+
 /** Derive a deep, rich gradient partner by shifting hue slightly and darkening.
  *  Produces a harmonious gradient without the ugly midtones of a true complement. */
 export function getComplementaryColor(hex: string): string {
