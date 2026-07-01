@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react'
 import { getThemeConfig, type ThemeConfig } from '../api/config'
-import { getContrastTextColor, getComplementaryColor, getHoverColor } from '../utils/color'
+import { getContrastTextColor, getComplementaryColor, getHoverColor, getAccessibleOnLight } from '../utils/color'
 
 export const DEFAULT_ORG_NAME = 'Vandalizer'
 export const DEFAULT_LOGO_URL = '/images/Vandalizer_Wordmark_RGB.png'
@@ -37,6 +37,9 @@ function applyTheme(theme: ThemeConfig) {
   root.style.setProperty('--highlight-text-color', getContrastTextColor(theme.highlight_color))
   root.style.setProperty('--highlight-complement', getComplementaryColor(theme.highlight_color))
   root.style.setProperty('--highlight-hover', getHoverColor(theme.highlight_color))
+  // Accessible variant of the brand color for use as text/icons on light
+  // backgrounds (the raw highlight often fails 4.5:1 on white — e.g. #eab308).
+  root.style.setProperty('--highlight-on-light', getAccessibleOnLight(theme.highlight_color))
 }
 
 function resolve(theme: ThemeConfig | null): Omit<Branding, 'refresh'> {

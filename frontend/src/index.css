@@ -9,6 +9,7 @@ html {
   --color-highlight-text: var(--highlight-text-color, #000000);
   --color-highlight-complement: var(--highlight-complement, #154cf7);
   --color-highlight-hover: var(--highlight-hover, #d49e00);
+  --color-highlight-on-light: var(--highlight-on-light, #806600);
   --color-panel-dark: #191919;
   --color-panel-bg: #EEEEEE;
   --radius-ui: var(--ui-radius, 12px);
@@ -19,6 +20,9 @@ html {
   --highlight-text-color: #000000;
   --highlight-complement: #154cf7;
   --highlight-hover: #d49e00;
+  /* Accessible variant of the brand color for text/icons on light backgrounds
+     (≥4.5:1 on white). Recomputed from the live highlight at runtime. */
+  --highlight-on-light: #806600;
   --ui-radius: 12px;
   --rail-w: 220px;
   font-family: "Public Sans", Arial, sans-serif;
