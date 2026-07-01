@@ -31,3 +31,16 @@ Duplicate ids (4.1.1) — none introduced by the pass-2 label sweep. 2.5.3 label
 
 ## Remediation
 Partition by file across agents (contrast + labels + the S3/S5/S6 correctness fixes), central `make ci` + expand the axe gate, verify. Nested-button structural fixes (S3) reviewed by hand.
+
+---
+
+## Pass-3 status: COMPLETE
+
+All findings above remediated across ~45 files. Verified green: `tsc -b` clean,
+**0 lint errors** (3 pre-existing-class `exhaustive-deps` warnings), 204 tests
+pass incl. the new **axe-core gate** (`src/a11y.test.tsx`), build clean.
+Notably this pass fixed the pass-2 *correctness regressions* (nested buttons,
+over-announcing `aria-live`, half-wired tab roles) and validated no duplicate-id
+regressions. Pass 4 will re-audit; the residue is expected to be small
+(edge cases, AAA items like reduced-motion on loaders, the raw-highlight-as-text
+tail on a few cert surfaces).
