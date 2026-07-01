@@ -1842,6 +1842,18 @@ configure_telemetry() {
     set_env "TELEMETRY_ENABLED" "false"
     echo -e "  ${SYM_CHECK}  Telemetry ${BOLD}disabled${RESET}"
   fi
+
+  # The api/celery containers were created earlier in this run (install: line ~735;
+  # redeploy: line ~1872), so they still hold the pre-decision env. Compose only
+  # re-reads env_file on (re)create, not restart — so without this the flag we just
+  # wrote wouldn't take effect until the NEXT deploy. Recreate the two app
+  # containers that consume the telemetry setting (api for the manual check, celery
+  # for the scheduled heartbeat) so a single deploy is sufficient. Infra is left
+  # untouched; skipped if the stack isn't up yet.
+  if $COMPOSE_CMD ps --status running --services 2>/dev/null | grep -qx "api"; then
+    echo -e "  ${SYM_PULSE}  ${DIM}Applying telemetry setting to running services...${RESET}"
+    $COMPOSE_CMD up -d --force-recreate --no-deps api celery >> "$SETUP_LOG" 2>&1 || true
+  fi
 }
 
 # Shared rebuild+restart logic used by upgrade and redeploy
