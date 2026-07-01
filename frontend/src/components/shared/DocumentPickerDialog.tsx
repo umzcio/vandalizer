@@ -84,7 +84,7 @@ export function DocumentPickerDialog({
               style={{
                 width: '100%', fontSize: 13, fontFamily: 'inherit',
                 border: '1px solid #d1d5db', borderRadius: 6, padding: '8px 10px 8px 32px',
-                outline: 'none', boxSizing: 'border-box',
+                boxSizing: 'border-box',
               }}
             />
           </div>

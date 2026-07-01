@@ -233,7 +233,7 @@ function TicketListView({
                       )}
                       <p className={`truncate text-sm ${attention ? 'font-semibold text-gray-900' : 'font-medium text-gray-900'}`}>
                         {t.ticket_number != null && (
-                          <span className="mr-1 font-mono text-[11px] text-gray-400">#{t.ticket_number}</span>
+                          <span className="mr-1 font-mono text-[11px] text-gray-500">#{t.ticket_number}</span>
                         )}
                         {t.subject}
                       </p>
@@ -247,9 +247,9 @@ function TicketListView({
                     </p>
                   </div>
                   <div className="flex flex-col items-end gap-0.5 shrink-0">
-                    <span className="text-[10px] text-gray-400">{timeAgo(t.updated_at)}</span>
+                    <span className="text-[10px] text-gray-500">{timeAgo(t.updated_at)}</span>
                     {t.message_count > 1 && (
-                      <span className="text-[10px] text-gray-400">{t.message_count} msgs</span>
+                      <span className="text-[10px] text-gray-500">{t.message_count} msgs</span>
                     )}
                     {t.priority === 'high' && (
                       <span className="text-[10px] font-medium text-red-500">High</span>
@@ -260,7 +260,7 @@ function TicketListView({
             })}
             {closed.length > 0 && (
               <details className="border-t border-gray-100">
-                <summary className="cursor-pointer px-4 py-2 text-xs font-medium text-gray-400 hover:text-gray-600">
+                <summary className="cursor-pointer px-4 py-2 text-xs font-medium text-gray-500 hover:text-gray-600">
                   {closed.length} closed ticket{closed.length !== 1 ? 's' : ''}
                 </summary>
                 {closed.map((t) => (
@@ -273,12 +273,12 @@ function TicketListView({
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm text-gray-700">
                         {t.ticket_number != null && (
-                          <span className="mr-1 font-mono text-[11px] text-gray-400">#{t.ticket_number}</span>
+                          <span className="mr-1 font-mono text-[11px] text-gray-500">#{t.ticket_number}</span>
                         )}
                         {t.subject}
                       </p>
                     </div>
-                    <span className="text-[10px] text-gray-400">{timeAgo(t.updated_at)}</span>
+                    <span className="text-[10px] text-gray-500">{timeAgo(t.updated_at)}</span>
                   </button>
                 ))}
               </details>
@@ -770,20 +770,20 @@ function ChatView({
               </span>
               {isSupportAgent && (
                 <>
-                  <span className="text-[10px] text-gray-300">|</span>
+                  <span className="text-[10px] text-gray-500">|</span>
                   <span className={`text-[10px] font-medium ${PRIORITY_COLORS[ticket.priority]}`}>
                     {ticket.priority}
                   </span>
                   {ticket.classification && (
                     <>
-                      <span className="text-[10px] text-gray-300">|</span>
+                      <span className="text-[10px] text-gray-500">|</span>
                       <span className="text-[10px] font-medium text-indigo-500">
                         {CLASSIFICATION_LABELS[ticket.classification]}
                       </span>
                     </>
                   )}
-                  <span className="text-[10px] text-gray-300">|</span>
-                  <span className="text-[10px] text-gray-400">{ticket.user_name || ticket.user_id}</span>
+                  <span className="text-[10px] text-gray-500">|</span>
+                  <span className="text-[10px] text-gray-500">{ticket.user_name || ticket.user_id}</span>
                 </>
               )}
             </div>
@@ -925,7 +925,7 @@ function ChatView({
                 ) : (
                   <p className="whitespace-pre-wrap text-sm">{msg.content}</p>
                 )}
-                <p className={`mt-1 text-[10px] ${isInternal ? 'text-yellow-800' : (isMe ? 'text-blue-200' : 'text-gray-400')}`}>
+                <p className={`mt-1 text-[10px] ${isInternal ? 'text-yellow-800' : (isMe ? 'text-blue-200' : 'text-gray-500')}`}>
                   {timeAgo(msg.created_at)}
                   {msg.edited_at && <span className="ml-1 italic">(edited)</span>}
                 </p>
@@ -933,7 +933,7 @@ function ChatView({
               {isMe && !isEditing && (
                 <button
                   onClick={() => startEdit(msg)}
-                  className="mt-0.5 inline-flex items-center gap-0.5 rounded px-1 py-0.5 text-[10px] text-gray-400 opacity-0 transition-opacity hover:bg-gray-100 hover:text-gray-600 group-hover:opacity-100"
+                  className="mt-0.5 inline-flex items-center gap-0.5 rounded px-1 py-0.5 text-[10px] text-gray-500 opacity-0 transition-opacity hover:bg-gray-100 hover:text-gray-600 group-hover:opacity-100"
                   title="Edit message"
                 >
                   <Pencil className="h-2.5 w-2.5" />
@@ -1148,14 +1148,14 @@ function WatcherBar({
   return (
     <div className="mt-2 ml-7 flex flex-wrap items-center gap-1.5">
       <span
-        className="inline-flex items-center gap-1 text-[10px] font-medium uppercase text-gray-400"
+        className="inline-flex items-center gap-1 text-[10px] font-medium uppercase text-gray-500"
         title="Tagged users follow this ticket and get notified on updates"
       >
         <Eye className="h-3 w-3" />
         Watchers
       </span>
       {watchers.length === 0 && !adding && (
-        <span className="text-[11px] text-gray-400">None</span>
+        <span className="text-[11px] text-gray-500">None</span>
       )}
       {watchers.map((w) => {
         const isMe = w.user_id === currentUserId

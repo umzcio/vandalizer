@@ -4646,6 +4646,7 @@ ${playgroundResult.request.user_prompt}`}
                               min={0}
                               value={p.warning_days_before ?? ''}
                               placeholder="—"
+                              aria-label="Retention period (days)"
                               onChange={e => {
                                 const v = e.target.value
                                 update({ warning_days_before: v === '' ? undefined : Number(v) || 0 })

@@ -338,6 +338,5 @@ function input(): React.CSSProperties {
     background: '#1a1a1a', color: '#e5e5e5',
     border: '1px solid #333', borderRadius: 4,
     padding: '6px 8px', fontSize: 12, fontFamily: 'inherit',
-    outline: 'none',
   }
 }

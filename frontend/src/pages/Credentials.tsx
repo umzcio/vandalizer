@@ -465,7 +465,7 @@ export default function Credentials() {
                     {cred.description && (
                       <div className="mt-1 text-xs text-gray-500 truncate">{cred.description}</div>
                     )}
-                    <div className="mt-1 text-xs font-mono text-gray-400">{cred.id}</div>
+                    <div className="mt-1 text-xs font-mono text-gray-500">{cred.id}</div>
                   </div>
                   <div className="flex items-center gap-2">
                     {cred.type === 'oauth_client_credentials' && (

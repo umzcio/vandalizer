@@ -329,6 +329,7 @@ function JoinRegisterForm({
       <input
         type="email"
         placeholder="Email"
+        aria-label="Email"
         required
         autoComplete="email"
         value={email}
@@ -338,6 +339,7 @@ function JoinRegisterForm({
       <input
         type="text"
         placeholder="Full name"
+        aria-label="Full name"
         autoComplete="name"
         value={name}
         onChange={(e) => setName(e.target.value)}
@@ -346,6 +348,7 @@ function JoinRegisterForm({
       <input
         type="password"
         placeholder="Create a password"
+        aria-label="Create a password"
         required
         value={password}
         onChange={(e) => setPassword(e.target.value)}
@@ -400,6 +403,7 @@ function JoinLoginForm({
       <input
         type="text"
         placeholder="Email"
+        aria-label="Email"
         required
         autoComplete="email"
         value={userId}
@@ -409,6 +413,7 @@ function JoinLoginForm({
       <input
         type="password"
         placeholder="Password"
+        aria-label="Password"
         required
         value={password}
         onChange={(e) => setPassword(e.target.value)}

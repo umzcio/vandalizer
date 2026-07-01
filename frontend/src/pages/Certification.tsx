@@ -830,7 +830,7 @@ function XPBar({ current, nextThreshold, prevThreshold, nextLevel }: {
     <div className="w-full">
       <div className="flex items-center justify-between mb-1.5">
         <span className="text-xs font-medium text-gray-500">{current} XP</span>
-        <span className="text-xs text-gray-400">
+        <span className="text-xs text-gray-500">
           {nextThreshold - current} XP to {LEVEL_CONFIG[nextLevel]?.label || 'Max'}
         </span>
       </div>

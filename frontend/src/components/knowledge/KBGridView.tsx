@@ -385,7 +385,7 @@ export function KBGridView({
           style={{
             padding: '4px 8px', fontSize: 12, fontWeight: 500, fontFamily: 'inherit',
             border: `1px solid ${C.border}`, borderRadius: 6,
-            backgroundColor: C.card, color: C.textMuted, outline: 'none', cursor: 'pointer',
+            backgroundColor: C.card, color: C.textMuted, cursor: 'pointer',
           }}
         >
           {(Object.keys(SORT_LABEL) as SortOption[]).map(opt => (

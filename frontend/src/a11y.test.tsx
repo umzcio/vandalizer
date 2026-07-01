@@ -6,6 +6,8 @@ import { Toggle } from './components/shared/Toggle'
 import { ConfirmDialog } from './components/shared/ConfirmDialog'
 import { ErrorBanner } from './components/shared/RunBanners'
 import { ModelEffortPicker } from './components/ModelEffortPicker'
+import { ProgressRow } from './components/shared/ProgressRow'
+import { AttachmentList } from './components/chat/AttachmentList'
 
 // Standing automated accessibility gate (WCAG pass 3). Renders representative
 // remediated primitives and asserts zero axe-core violations, so a11y
@@ -44,6 +46,25 @@ describe('a11y — no axe violations', () => {
     ] as React.ComponentProps<typeof ModelEffortPicker>['models']
     const { container } = render(
       <ModelEffortPicker models={models} selectedModel="gpt-4o" onChange={() => {}} />,
+    )
+    expect(await axe(container)).toHaveNoViolations()
+  })
+
+  it('ProgressRow (role=progressbar)', async () => {
+    const { container } = render(
+      <ProgressRow label="Uploading" subtitle="42%" pct={42} color="#7c3aed" />,
+    )
+    expect(await axe(container)).toHaveNoViolations()
+  })
+
+  it('AttachmentList (icon-button labels)', async () => {
+    const { container } = render(
+      <AttachmentList
+        fileAttachments={[{ id: 'f1', filename: 'report.pdf' } as never]}
+        urlAttachments={[]}
+        selectedDocUuids={[]}
+        onRemoveFile={() => {}}
+      />,
     )
     expect(await axe(container)).toHaveNoViolations()
   })

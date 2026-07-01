@@ -184,7 +184,7 @@ export function KBSourceInspectorModal({ kbUuid, source, onClose, onUpdated }: P
             style={{
               flex: 1, fontSize: 12, color: '#e5e5e5',
               backgroundColor: '#161616', border: '1px solid #2e2e2e',
-              borderRadius: 5, padding: '5px 8px', fontFamily: 'inherit', outline: 'none',
+              borderRadius: 5, padding: '5px 8px', fontFamily: 'inherit',
             }}
           />
           {sourceDirty && (

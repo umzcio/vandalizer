@@ -124,6 +124,7 @@ export function ChatInput({
             value={linkUrl}
             onChange={(e) => setLinkUrl(e.target.value)}
             placeholder="Enter URL..."
+            aria-label="Enter URL"
             className="flex-1 rounded-md border border-gray-300 px-3 py-1.5 text-sm focus:border-highlight focus:outline-none focus:ring-2 focus:ring-highlight-on-light"
             onKeyDown={(e) => e.key === 'Enter' && handleLinkSubmit()}
           />

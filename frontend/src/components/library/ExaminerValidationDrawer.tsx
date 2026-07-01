@@ -20,7 +20,7 @@ interface CheckRow { description: string; target_step: string }
 const inputStyle: React.CSSProperties = {
   width: '100%', padding: '6px 10px',
   border: '1px solid #d1d5db', borderRadius: 6,
-  fontSize: 12, fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box',
+  fontSize: 12, fontFamily: 'inherit', boxSizing: 'border-box',
 }
 const labelStyle: React.CSSProperties = {
   display: 'block', fontSize: 11, fontWeight: 600, color: '#374151', marginBottom: 3,

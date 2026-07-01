@@ -200,7 +200,7 @@ export function AutomationCreationWizard({ onClose, onCreate }: Props) {
 
   const inputStyle: React.CSSProperties = {
     width: '100%', padding: '10px 14px', fontSize: 14, fontFamily: 'inherit',
-    border: '1px solid #d1d5db', borderRadius: 8, outline: 'none',
+    border: '1px solid #d1d5db', borderRadius: 8,
     boxSizing: 'border-box', color: '#202124', transition: 'border-color 0.15s',
   }
 

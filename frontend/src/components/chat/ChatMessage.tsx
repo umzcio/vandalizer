@@ -343,9 +343,10 @@ export function ChatMessage({ message, messageIndex, conversationUuid, streaming
                 onChange={e => setComment(e.target.value)}
                 onKeyDown={e => { if (e.key === 'Enter') handleSubmitComment() }}
                 placeholder="What went wrong? (optional)"
+                aria-label="What went wrong? (optional)"
                 style={{
                   flex: 1, padding: '6px 10px', borderRadius: 6,
-                  border: '1px solid #d1d5db', fontSize: 13, outline: 'none',
+                  border: '1px solid #d1d5db', fontSize: 13,
                 }}
               />
               <button

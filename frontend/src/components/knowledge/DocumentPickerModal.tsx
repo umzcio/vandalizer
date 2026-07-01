@@ -336,7 +336,7 @@ export function DocumentPickerModal({ onSubmit, onClose, existingSourceUuids = [
               style={{
                 width: '100%', padding: '10px 12px 10px 34px', fontSize: 13, fontFamily: 'inherit',
                 backgroundColor: '#2a2a2a', color: '#e5e5e5',
-                border: '1px solid #3a3a3a', borderRadius: 8, outline: 'none',
+                border: '1px solid #3a3a3a', borderRadius: 8,
                 boxSizing: 'border-box',
               }}
             />
@@ -350,7 +350,7 @@ export function DocumentPickerModal({ onSubmit, onClose, existingSourceUuids = [
               style={{
                 width: '100%', padding: '10px 10px 10px 30px', fontSize: 13, fontFamily: 'inherit',
                 backgroundColor: '#2a2a2a', color: '#e5e5e5',
-                border: '1px solid #3a3a3a', borderRadius: 8, outline: 'none',
+                border: '1px solid #3a3a3a', borderRadius: 8,
                 appearance: 'none', boxSizing: 'border-box', cursor: 'pointer',
               }}
             >

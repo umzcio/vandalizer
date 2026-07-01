@@ -82,7 +82,7 @@ export function CreateKBModal({ onClose, onCreate }: CreateKBModalProps) {
           style={{
             width: '100%', padding: '8px 10px', fontSize: 13, fontFamily: 'inherit',
             backgroundColor: '#2a2a2a', border: '1px solid #3a3a3a', borderRadius: 6,
-            color: '#e5e5e5', outline: 'none', marginBottom: 14, boxSizing: 'border-box',
+            color: '#e5e5e5', marginBottom: 14, boxSizing: 'border-box',
           }}
         />
 
@@ -98,7 +98,7 @@ export function CreateKBModal({ onClose, onCreate }: CreateKBModalProps) {
           style={{
             width: '100%', padding: '8px 10px', fontSize: 13, fontFamily: 'inherit',
             backgroundColor: '#2a2a2a', border: '1px solid #3a3a3a', borderRadius: 6,
-            color: '#e5e5e5', outline: 'none', marginBottom: 6, resize: 'vertical',
+            color: '#e5e5e5', marginBottom: 6, resize: 'vertical',
             boxSizing: 'border-box', lineHeight: 1.5,
           }}
         />

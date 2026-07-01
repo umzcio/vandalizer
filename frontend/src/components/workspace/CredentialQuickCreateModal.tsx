@@ -62,7 +62,7 @@ const labelStyle: React.CSSProperties = {
 const inputStyle: React.CSSProperties = {
   width: '100%', fontSize: 13, fontFamily: 'inherit',
   border: '1px solid #d1d5db', borderRadius: 6, padding: '8px 10px',
-  outline: 'none', boxSizing: 'border-box', background: '#fff',
+  boxSizing: 'border-box', background: '#fff',
 }
 const monoInputStyle: React.CSSProperties = {
   ...inputStyle,

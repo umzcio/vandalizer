@@ -557,7 +557,7 @@ export function KnowledgePanel() {
           style={{
             width: '100%', padding: '8px 10px', fontSize: 13, fontFamily: 'inherit',
             backgroundColor: '#2a2a2a', border: '1px solid #3a3a3a', borderRadius: 6,
-            color: '#e5e5e5', outline: 'none', marginBottom: 12, boxSizing: 'border-box',
+            color: '#e5e5e5', marginBottom: 12, boxSizing: 'border-box',
           }}
         />
         <label htmlFor="verify-description" style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#aaa', marginBottom: 4 }}>Description</label>
@@ -570,7 +570,7 @@ export function KnowledgePanel() {
           style={{
             width: '100%', padding: '8px 10px', fontSize: 13, fontFamily: 'inherit',
             backgroundColor: '#2a2a2a', border: '1px solid #3a3a3a', borderRadius: 6,
-            color: '#e5e5e5', outline: 'none', marginBottom: 12, resize: 'vertical',
+            color: '#e5e5e5', marginBottom: 12, resize: 'vertical',
             boxSizing: 'border-box',
           }}
         />
@@ -583,7 +583,7 @@ export function KnowledgePanel() {
           style={{
             width: '100%', padding: '8px 10px', fontSize: 13, fontFamily: 'inherit',
             backgroundColor: '#2a2a2a', border: '1px solid #3a3a3a', borderRadius: 6,
-            color: '#e5e5e5', outline: 'none', marginBottom: 16, boxSizing: 'border-box',
+            color: '#e5e5e5', marginBottom: 16, boxSizing: 'border-box',
           }}
         />
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
@@ -665,7 +665,7 @@ export function KnowledgePanel() {
                   flex: 1, fontSize: 16, fontWeight: 600, fontFamily: 'inherit',
                   color: '#fff', backgroundColor: '#2a2a2a',
                   border: '1px solid #555', borderRadius: 4,
-                  padding: '2px 8px', outline: 'none', minWidth: 0,
+                  padding: '2px 8px', minWidth: 0,
                 }}
               />
               <button
@@ -787,7 +787,7 @@ export function KnowledgePanel() {
                       width: '100%', fontSize: 13, fontFamily: 'inherit', lineHeight: 1.5,
                       color: '#e5e5e5', backgroundColor: '#1a1a1a',
                       border: '1px solid #555', borderRadius: 6,
-                      padding: '8px 10px', outline: 'none',
+                      padding: '8px 10px',
                       resize: 'vertical', minHeight: 80,
                     }}
                   />
@@ -1167,7 +1167,6 @@ export function KnowledgePanel() {
                               width: '100%', fontSize: 12, color: '#e5e5e5',
                               backgroundColor: '#1f1f1f', border: '1px solid #4a4a4a',
                               borderRadius: 4, padding: '4px 6px', fontFamily: 'inherit',
-                              outline: 'none',
                             }}
                           />
                         ) : (
@@ -1796,7 +1795,7 @@ function KBTagsEditor({
               minWidth: 100, fontSize: 12, fontFamily: 'inherit',
               color: '#e5e5e5', backgroundColor: '#1a1a1a',
               border: '1px solid #333', borderRadius: 6,
-              padding: '3px 8px', outline: 'none',
+              padding: '3px 8px',
             }}
           />
         )}

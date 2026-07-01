@@ -75,7 +75,7 @@ export function AddUrlsModal({ onSubmit, onClose }: AddUrlsModalProps) {
             width: '100%', padding: 12, fontSize: 13, fontFamily: 'inherit',
             backgroundColor: '#2a2a2a', color: '#e5e5e5',
             border: '1px solid #3a3a3a', borderRadius: 8,
-            resize: 'vertical', outline: 'none',
+            resize: 'vertical',
           }}
         />
 
@@ -108,7 +108,6 @@ export function AddUrlsModal({ onSubmit, onClose }: AddUrlsModalProps) {
                   width: 72, padding: '6px 8px', fontSize: 13, fontFamily: 'inherit',
                   backgroundColor: '#2a2a2a', color: '#e5e5e5',
                   border: '1px solid #3a3a3a', borderRadius: 6,
-                  outline: 'none',
                 }}
               />
             </div>
@@ -124,7 +123,6 @@ export function AddUrlsModal({ onSubmit, onClose }: AddUrlsModalProps) {
                   width: '100%', padding: '6px 8px', fontSize: 13, fontFamily: 'inherit',
                   backgroundColor: '#2a2a2a', color: '#e5e5e5',
                   border: '1px solid #3a3a3a', borderRadius: 6,
-                  outline: 'none',
                 }}
               />
               <div style={{ fontSize: 11, color: '#666' }}>

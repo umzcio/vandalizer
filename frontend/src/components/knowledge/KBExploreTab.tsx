@@ -567,7 +567,7 @@ export function KBExploreTab({ onAdopted }: KBExploreTabProps) {
                     fontSize: 13, fontFamily: 'inherit',
                     backgroundColor: C.card, color: C.text,
                     border: `1px solid ${C.border}`, borderRadius: 8,
-                    outline: 'none', boxSizing: 'border-box',
+                    boxSizing: 'border-box',
                   }}
                 />
               </div>
@@ -579,7 +579,7 @@ export function KBExploreTab({ onAdopted }: KBExploreTabProps) {
                 style={{
                   padding: '6px 10px', fontSize: 12, fontWeight: 500, fontFamily: 'inherit',
                   border: `1px solid ${C.border}`, borderRadius: 8,
-                  backgroundColor: C.card, color: C.textMuted, outline: 'none', cursor: 'pointer',
+                  backgroundColor: C.card, color: C.textMuted, cursor: 'pointer',
                 }}
               >
                 <option value="">Any quality</option>
@@ -597,7 +597,7 @@ export function KBExploreTab({ onAdopted }: KBExploreTabProps) {
                   style={{
                     padding: '6px 10px', fontSize: 12, fontWeight: 500, fontFamily: 'inherit',
                     border: `1px solid ${C.border}`, borderRadius: 8,
-                    backgroundColor: C.card, color: C.textMuted, outline: 'none', cursor: 'pointer',
+                    backgroundColor: C.card, color: C.textMuted, cursor: 'pointer',
                   }}
                 >
                   {sortOptions.map(([val, label]) => (

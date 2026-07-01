@@ -161,7 +161,7 @@ export function AutomationEditorPanel() {
               }}
               style={{
                 fontSize: 18, fontWeight: 600, color: '#202124', border: '1px solid #d1d5db',
-                borderRadius: 4, padding: '2px 8px', fontFamily: 'inherit', outline: 'none',
+                borderRadius: 4, padding: '2px 8px', fontFamily: 'inherit',
                 flex: 1, marginRight: 8,
               }}
             />
@@ -265,7 +265,7 @@ export function AutomationEditorPanel() {
           placeholder="Add a description..."
           style={{
             width: '100%', padding: '6px 0', fontSize: 13, color: '#6b7280',
-            border: 'none', borderBottom: '1px solid transparent', outline: 'none',
+            border: 'none', borderBottom: '1px solid transparent',
             fontFamily: 'inherit', backgroundColor: 'transparent', marginBottom: 20,
             boxSizing: 'border-box',
           }}
@@ -534,7 +534,7 @@ function FolderWatchConfig({ automation, onSave }: { automation: Automation; onS
         style={{
           width: '100%', padding: '8px 12px', fontSize: 13,
           border: '1px solid #d1d5db', borderRadius: 6, fontFamily: 'inherit',
-          backgroundColor: '#fff', color: '#202124', outline: 'none', marginBottom: 16,
+          backgroundColor: '#fff', color: '#202124', marginBottom: 16,
         }}
       >
         <option value="">Select a folder to watch</option>
@@ -575,7 +575,7 @@ function FolderWatchConfig({ automation, onSave }: { automation: Automation; onS
         onBlur={e => onSave({ trigger_config: { ...config, exclude_patterns: e.target.value } })}
         style={{
           width: '100%', padding: '8px 12px', fontSize: 13, border: '1px solid #d1d5db',
-          borderRadius: 6, fontFamily: 'inherit', outline: 'none', marginBottom: 16,
+          borderRadius: 6, fontFamily: 'inherit', marginBottom: 16,
           boxSizing: 'border-box',
         }}
       />
@@ -846,7 +846,7 @@ function OutputStorageCard({ automation, onSave }: { automation: Automation; onS
               style={{
                 width: '100%', padding: '8px 12px', fontSize: 13,
                 border: '1px solid #d1d5db', borderRadius: 6, fontFamily: 'inherit',
-                backgroundColor: '#fff', color: '#202124', outline: 'none',
+                backgroundColor: '#fff', color: '#202124',
               }}
             >
               <option value="">Select folder</option>
@@ -867,7 +867,7 @@ function OutputStorageCard({ automation, onSave }: { automation: Automation; onS
               style={{
                 width: '100%', padding: '8px 12px', fontSize: 13,
                 border: '1px solid #d1d5db', borderRadius: 6, fontFamily: 'inherit',
-                backgroundColor: '#fff', color: '#202124', outline: 'none',
+                backgroundColor: '#fff', color: '#202124',
               }}
             >
               {automation.action_type === 'extraction' ? (
@@ -901,7 +901,7 @@ function OutputStorageCard({ automation, onSave }: { automation: Automation; onS
               placeholder="{workflow_name}_{date}"
               style={{
                 width: '100%', padding: '8px 12px', fontSize: 13, fontFamily: 'inherit',
-                border: '1px solid #d1d5db', borderRadius: 6, outline: 'none', boxSizing: 'border-box',
+                border: '1px solid #d1d5db', borderRadius: 6, boxSizing: 'border-box',
               }}
             />
             <div style={{ fontSize: 11, color: '#6b7280', marginTop: 4 }}>
@@ -973,7 +973,7 @@ function OutputNotificationCard({ automation, onSave }: { automation: Automation
               placeholder="email@example.com, another@example.com"
               style={{
                 width: '100%', padding: '8px 12px', fontSize: 13, fontFamily: 'inherit',
-                border: '1px solid #d1d5db', borderRadius: 6, outline: 'none', boxSizing: 'border-box',
+                border: '1px solid #d1d5db', borderRadius: 6, boxSizing: 'border-box',
               }}
             />
           </div>
@@ -999,7 +999,7 @@ function OutputNotificationCard({ automation, onSave }: { automation: Automation
               style={{
                 width: '100%', padding: '8px 12px', fontSize: 13,
                 border: '1px solid #d1d5db', borderRadius: 6, fontFamily: 'inherit',
-                backgroundColor: '#fff', color: '#202124', outline: 'none',
+                backgroundColor: '#fff', color: '#202124',
               }}
             >
               <option value="always">Always</option>

@@ -97,6 +97,7 @@ export function KBPickerModal({ onSelect, onClose, folderTitle }: KBPickerModalP
             <input
               autoFocus
               type="text"
+              aria-label="New knowledge base name"
               placeholder="New knowledge base name"
               value={newTitle}
               onChange={(e) => setNewTitle(e.target.value)}
