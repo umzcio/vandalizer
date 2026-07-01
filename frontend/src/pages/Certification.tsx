@@ -856,6 +856,8 @@ function XPBar({ current, nextThreshold, prevThreshold, nextLevel }: {
 function ValidationResults({ result, onDismiss }: { result: ValidationResult; onDismiss: () => void }) {
   return (
     <div
+      role={result.passed ? 'status' : 'alert'}
+      aria-live={result.passed ? 'polite' : 'assertive'}
       className={cn(
         'border-2 p-4 cert-slide-in',
         result.passed ? 'border-green-200 bg-green-50' : 'border-amber-200 bg-amber-50',
@@ -886,8 +888,8 @@ function ValidationResults({ result, onDismiss }: { result: ValidationResult; on
             </div>
           )}
         </div>
-        <button onClick={onDismiss} className="text-gray-400 hover:text-gray-600">
-          <X size={16} />
+        <button type="button" onClick={onDismiss} aria-label="Dismiss results" className="text-gray-400 hover:text-gray-600">
+          <X size={16} aria-hidden="true" />
         </button>
       </div>
       <div className="space-y-1.5">
@@ -1090,7 +1092,7 @@ export default function Certification() {
     return (
       <PageLayout>
         <div className="p-6 max-w-5xl mx-auto">
-          <div className="text-gray-500 text-sm">Loading certification progress...</div>
+          <div role="status" aria-live="polite" className="text-gray-500 text-sm">Loading certification progress...</div>
         </div>
       </PageLayout>
     )

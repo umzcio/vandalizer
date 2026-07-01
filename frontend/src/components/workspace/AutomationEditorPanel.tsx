@@ -348,7 +348,7 @@ export function AutomationEditorPanel() {
                 {!opt.enabled && (
                   <span style={{
                     fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 10,
-                    backgroundColor: '#f3f4f6', color: '#9ca3af', textTransform: 'uppercase',
+                    backgroundColor: '#f3f4f6', color: '#6b7280', textTransform: 'uppercase',
                   }}>
                     Coming Soon
                   </span>
@@ -383,7 +383,7 @@ export function AutomationEditorPanel() {
                 style={{
                   width: '100%', padding: '10px 14px', fontSize: 13,
                   border: '1.5px solid #d1d5db', borderRadius: 8, fontFamily: 'inherit',
-                  backgroundColor: '#fff', color: currentName ? '#111827' : '#9ca3af',
+                  backgroundColor: '#fff', color: currentName ? '#111827' : '#6b7280',
                   cursor: 'pointer', textAlign: 'left',
                   display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                 }}
@@ -588,7 +588,7 @@ function FolderWatchConfig({ automation, onSave }: { automation: Automation; onS
           style={{ width: 16, height: 16, accentColor: '#3b82f6' }}
         />
         <span style={{ fontWeight: 500 }}>Batch mode</span>
-        <span style={{ color: '#9ca3af', fontSize: 12 }}>wait and process files together</span>
+        <span style={{ color: '#6b7280', fontSize: 12 }}>wait and process files together</span>
       </label>
     </div>
   )
@@ -708,7 +708,7 @@ curl "${baseUrl}/api/workflows/status?session_id=SESSION_ID_FROM_RESPONSE" \\
 
       {/* Endpoint */}
       <div style={{ marginBottom: 16 }}>
-        <div style={{ fontSize: 11, fontWeight: 600, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
+        <div style={{ fontSize: 11, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
           Endpoint
         </div>
         <div style={{ ...codeBlockStyle, whiteSpace: 'nowrap' }}>
@@ -748,7 +748,7 @@ curl "${baseUrl}/api/workflows/status?session_id=SESSION_ID_FROM_RESPONSE" \\
 
       {/* Response example */}
       <div style={{ marginBottom: 16 }}>
-        <div style={{ fontSize: 11, fontWeight: 600, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
+        <div style={{ fontSize: 11, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
           Response
         </div>
         <div style={codeBlockStyle}>
@@ -778,7 +778,7 @@ function CodeBlock({ title, code, id, copied, onCopy, style }: {
   return (
     <div style={{ marginBottom: 16 }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-        <div style={{ fontSize: 11, fontWeight: 600, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+        <div style={{ fontSize: 11, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
           {title}
         </div>
         <button
@@ -904,7 +904,7 @@ function OutputStorageCard({ automation, onSave }: { automation: Automation; onS
                 border: '1px solid #d1d5db', borderRadius: 6, outline: 'none', boxSizing: 'border-box',
               }}
             />
-            <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 4 }}>
+            <div style={{ fontSize: 11, color: '#6b7280', marginTop: 4 }}>
               Variables: {'{workflow_name}'}, {'{date}'}, {'{timestamp}'}, {'{document_name}'}
             </div>
           </div>

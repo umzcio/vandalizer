@@ -25,8 +25,10 @@ export function KBSearchBar({ value, onChange, placeholder = 'Search knowledge b
       padding: '0 12px', margin: '8px 12px 4px',
       backgroundColor: '#2a2a2a', border: '1px solid #3a3a3a', borderRadius: 6,
     }}>
-      <Search size={13} style={{ color: '#666', flexShrink: 0 }} />
+      <Search size={13} style={{ color: '#666', flexShrink: 0 }} aria-hidden="true" />
       <input
+        type="search"
+        aria-label={placeholder}
         value={draft}
         onChange={e => setDraft(e.target.value)}
         placeholder={placeholder}
@@ -40,10 +42,12 @@ export function KBSearchBar({ value, onChange, placeholder = 'Search knowledge b
       />
       {draft && (
         <button
+          type="button"
+          aria-label="Clear search"
           onClick={() => { setDraft(''); onChange('') }}
           style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: 2, display: 'flex' }}
         >
-          <X size={12} style={{ color: '#666' }} />
+          <X size={12} style={{ color: '#666' }} aria-hidden="true" />
         </button>
       )}
     </div>

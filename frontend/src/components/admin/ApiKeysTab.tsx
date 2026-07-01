@@ -13,6 +13,7 @@ import {
   type ApiKeyListItem,
   type CreateApiKeyResponse,
 } from '../../api/admin'
+import { useToast } from '../../contexts/ToastContext'
 
 marked.setOptions({ breaks: true, gfm: true })
 
@@ -58,6 +59,7 @@ function StatusBadge({ keyItem }: { keyItem: ApiKeyListItem }) {
 }
 
 export function ApiKeysTab() {
+  const { toast } = useToast()
   const [keys, setKeys] = useState<ApiKeyListItem[]>([])
   const [loading, setLoading] = useState(false)
   const [includeRevoked, setIncludeRevoked] = useState(false)
@@ -89,7 +91,7 @@ export function ApiKeysTab() {
       await revokeApiKey(keyId)
       await reload()
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Revoke failed')
+      toast(e instanceof Error ? e.message : 'Revoke failed', 'error')
     }
   }
 
@@ -176,14 +178,14 @@ export function ApiKeysTab() {
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
           <thead>
             <tr style={{ borderBottom: '2px solid #e5e7eb', textAlign: 'left' }}>
-              <th style={{ padding: 8 }}>Name</th>
-              <th style={{ padding: 8 }}>Prefix</th>
-              <th style={{ padding: 8 }}>Scopes</th>
-              <th style={{ padding: 8 }}>Status</th>
-              <th style={{ padding: 8 }}>Created</th>
-              <th style={{ padding: 8 }}>Last used</th>
-              <th style={{ padding: 8 }}>Expires</th>
-              <th style={{ padding: 8 }} />
+              <th scope="col" style={{ padding: 8 }}>Name</th>
+              <th scope="col" style={{ padding: 8 }}>Prefix</th>
+              <th scope="col" style={{ padding: 8 }}>Scopes</th>
+              <th scope="col" style={{ padding: 8 }}>Status</th>
+              <th scope="col" style={{ padding: 8 }}>Created</th>
+              <th scope="col" style={{ padding: 8 }}>Last used</th>
+              <th scope="col" style={{ padding: 8 }}>Expires</th>
+              <th scope="col" style={{ padding: 8 }}><span className="sr-only">Actions</span></th>
             </tr>
           </thead>
           <tbody>
@@ -222,12 +224,14 @@ export function ApiKeysTab() {
                 <td style={{ padding: 8 }}>
                   {!k.revoked_at && (
                     <button
+                      type="button"
                       onClick={() => handleRevoke(k.id, k.name)}
                       style={{
                         padding: 6, border: 'none', background: 'transparent',
                         color: '#dc2626', cursor: 'pointer',
                       }}
                       title="Revoke"
+                      aria-label={`Revoke API key ${k.name}`}
                     >
                       <Trash2 size={16} />
                     </button>
@@ -620,10 +624,10 @@ function ModalShell({
       }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
           <h3 style={{ fontSize: 18, fontWeight: 700 }}>{title}</h3>
-          <button onClick={onClose} style={{
+          <button type="button" onClick={onClose} aria-label="Close dialog" style={{
             padding: 4, border: 'none', background: 'transparent', cursor: 'pointer',
           }}>
-            <X size={18} />
+            <X size={18} aria-hidden="true" />
           </button>
         </div>
         {children}

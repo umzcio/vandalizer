@@ -285,12 +285,16 @@ export function ChatInput({
 
               {showExportMenu && (
                 <div
+                  role="menu"
+                  aria-label="Export conversation format"
                   className="absolute right-0 z-[1000] min-w-[140px] rounded-[var(--ui-radius)] border bg-white p-1.5"
                   style={{ bottom: 'calc(100% + 8px)', borderColor: 'rgba(0,0,0,0.14)', boxShadow: '0 10px 28px rgba(0,0,0,0.16)' }}
+                  onKeyDown={(e) => { if (e.key === 'Escape') setShowExportMenu(false) }}
                 >
                   {['PDF', 'CSV', 'Text'].map(fmt => (
                     <button
                       key={fmt}
+                      role="menuitem"
                       onClick={() => { onExport(fmt.toLowerCase()); setShowExportMenu(false) }}
                       className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-left text-[#1f2937] hover:bg-black/[.04] transition-colors"
                     >
